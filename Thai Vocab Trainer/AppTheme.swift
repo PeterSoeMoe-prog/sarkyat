@@ -1,48 +1,58 @@
 import SwiftUI
 
 enum AppTheme: String, Codable, CaseIterable, Identifiable {
-    case light, dark // Only light and dark themes
+    case dark // Dark theme
+    case light // Light gradient theme
     var id: String { rawValue }
 
-    var iconName: String {
+    var iconName: String { "paintbrush.fill" }
+
+    /// Human-readable name shown in Settings
+    var displayName: String {
         switch self {
-        case .light: return "sun.max.fill"
-        case .dark: return "moon.fill"
+        case .dark:     return "Dark"
+        case .light: return "Light"
         }
     }
 
     var colorScheme: ColorScheme? {
         switch self {
         case .light: return .light
-        case .dark: return .dark
+        default: return nil
         }
     }
 
     var primaryTextColor: Color {
-        switch self {
-        case .light: return .black
-        case .dark: return .white
-        }
+        Color(.label)
     }
 
     var backgroundColor: Color {
-        switch self {
-        case .light: return .white
-        case .dark: return .black
-        }
+        Color(.systemBackground)
     }
 
     var accentArrowColor: Color {
-        switch self {
-        case .light: return Color.gray.opacity(0.6)
-        case .dark: return .white
-        }
+        Color(.secondaryLabel)
     }
 
     var welcomeMessageColor: Color {
+        Color(.tertiaryLabel)
+    }
+
+    // MARK: - Light theme helpers
+    var gradient: LinearGradient {
         switch self {
-        case .light: return Color.gray.opacity(0.7)
-        case .dark: return .white
+        case .light:
+            return LinearGradient(colors: [
+                Color(red: 0.71, green: 0.60, blue: 0.98),
+                Color(red: 0.95, green: 0.62, blue: 0.93),
+                Color(red: 0.70, green: 0.85, blue: 1.00)
+            ], startPoint: .top, endPoint: .bottom)
+        default:
+            return LinearGradient(colors: [backgroundColor, backgroundColor], startPoint: .top, endPoint: .bottom)
         }
+    }
+
+    var cardFill: AnyShapeStyle {
+        AnyShapeStyle(.ultraThinMaterial)
     }
 }
