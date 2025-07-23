@@ -2,52 +2,89 @@ import Foundation
 import AVFoundation
 import SwiftUI
 
-/// Plays a list of Thai strings sequentially with a 1-second pause between each.
-/// Usage: create once (e.g. `@StateObject private var ttsPlayer = TTSQueuePlayer()`)
-/// and call `ttsPlayer.play(texts: [String])`.
 @MainActor
-final class TTSQueuePlayer: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+final class TTSQueuePlayer: ObservableObject {
     private let synthesizer = AVSpeechSynthesizer()
-    private var queue: [String] = []
-    private var currentIndex: Int = 0
-    private var isActive: Bool = false
-
-    override init() {
-        super.init()
-        synthesizer.delegate = self
-    }
-
-    /// Begins playing the provided Thai texts sequentially.
-    /// Any existing playback is stopped and the new queue starts immediately.
+    
     func play(texts: [String]) {
-        guard !texts.isEmpty else { return }
-        // Stop any ongoing speech immediately.
-        synthesizer.stopSpeaking(at: .immediate)
-        queue = texts
-        currentIndex = 0
-        isActive = true
-        speakCurrent()
-    }
-
-    private func speakCurrent() {
-        guard isActive, currentIndex < queue.count else {
-            isActive = false
-            return
-        }
-        let utterance = AVSpeechUtterance(string: queue[currentIndex])
+        // Stop any current playback
+        stop()
+        
+        // Play only the first word
+        guard let firstWord = texts.first else { return }
+        
+        let utterance = AVSpeechUtterance(string: firstWord)
         utterance.voice = AVSpeechSynthesisVoice(language: "th-TH")
         utterance.rate = 0.45
+        
+        print("🔊 Playing: \(firstWord)")
         synthesizer.speak(utterance)
     }
-
-    // MARK: - AVSpeechSynthesizerDelegate
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        // Hop back to the main actor because the class is @MainActor.
-        Task { @MainActor in
-            self.currentIndex += 1
-            // Wait 1 second before speaking the next word.
-            try? await Task.sleep(for: .seconds(1))
-            self.speakCurrent()
-        }
+    
+    func stop() {
+        synthesizer.stopSpeaking(at: .immediate)
     }
 }
+
+// MARK: - Preview
+#if DEBUG
+struct TTSQueuePlayer_Previews: PreviewProvider {
+    static var previews: some View {
+        TTSPlayerTestView()
+            .previewDisplayName("TTS Player Test")
+    }
+}
+
+struct TTSPlayerTestView: View {
+    @StateObject private var player = TTSQueuePlayer()
+    @State private var isPlaying = false
+    
+    let testWords = ["สวัสดี", "ขอบคุณ", "ลาก่อน", "สบายดีไหม", "ฉันชื่อ"]
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("TTS Queue Player Test")
+                .font(.headline)
+                .padding()
+            
+            Text("Words to play:")
+                .font(.subheadline)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(testWords, id: \.self) { word in
+                    Text("• \(word)")
+                        .font(.body)
+                }
+            }
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(8)
+            
+            Button(action: {
+                if isPlaying {
+                    player.stop()
+                } else {
+                    player.play(texts: testWords)
+                }
+                isPlaying.toggle()
+            }) {
+                HStack {
+                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                    Text(isPlaying ? "Stop" : "Play First Word")
+                }
+                .frame(minWidth: 200)
+                .padding()
+                .background(isPlaying ? Color.red : Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+            .padding()
+            
+            Text("Note: Should only play the first word")
+                .font(.caption)
+                .foregroundColor(.gray)
+        }
+        .padding()
+    }
+}
+#endif

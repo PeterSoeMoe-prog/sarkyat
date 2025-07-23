@@ -1,5 +1,18 @@
 import SwiftUI
 import AVFoundation
+#if canImport(UIKit)
+import UIKit
+#endif
+
+// Delegate to handle speech completion so we can reliably advance to the next word
+private final class SpeechDelegate: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+    var onFinishUtterance: (() -> Void)?
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async {
+            self.onFinishUtterance?()
+        }
+    }
+}
 
 struct CategoryListView: View {
     @Binding var items: [VocabularyEntry]
@@ -8,8 +21,11 @@ struct CategoryListView: View {
     @State private var isPlaying = false
     @State private var isPaused = false
     @State private var currentIndex = 0
+    @AppStorage("ttsRate") private var ttsRate: Double = 0.5
+    @State private var progress: Double = 0.0
     @Environment(\.dismiss) private var dismiss
     private let synthesizer = AVSpeechSynthesizer()
+    @StateObject private var speechDelegate = SpeechDelegate()
     
     private var filteredItems: [VocabularyEntry] {
         items.filter { $0.category == category }
@@ -17,7 +33,7 @@ struct CategoryListView: View {
     
     var body: some View {
         List {
-            // Playback Controls Section
+            // (Removed in-list playback controls; floating mini-player handles UI)
             Section {
                 VStack(spacing: 12) {
                     // Current Word
@@ -32,32 +48,26 @@ struct CategoryListView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
-                    // Controls
-                    HStack(spacing: 40) {
-                        // Previous Button
-                        Button(action: previousWord) {
-                            Image(systemName: "backward.fill")
-                                .font(.title2)
-                        }
-                        .disabled(currentIndex <= 0)
-                        .foregroundColor(currentIndex > 0 ? .blue : .gray)
-                        
-                        // Play/Pause Button
-                        Button(action: togglePlayPause) {
-                            Image(systemName: isPlaying ? (isPaused ? "play.circle.fill" : "pause.circle.fill") : "play.circle.fill")
-                                .font(.system(size: 44))
-                        }
-                        .foregroundColor(.blue)
-                        
-                        // Next Button
-                        Button(action: nextWord) {
-                            Image(systemName: "forward.fill")
-                                .font(.title2)
-                        }
-                        .disabled(currentIndex >= filteredItems.count - 1)
-                        .foregroundColor(currentIndex < filteredItems.count - 1 ? .blue : .gray)
+                    // Gap progress indicator
+                    if isPlaying {
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                            .tint(.blue)
                     }
-                    .padding(.vertical, 4)
+                    
+                    // Controls
+                    TTSControlsView(
+                        isPlaying: isPlaying,
+                        isPaused: isPaused,
+                        hasPrevious: currentIndex > 0,
+                        hasNext: currentIndex < filteredItems.count - 1,
+                        previousAction: previousWord,
+                        togglePlayPauseAction: togglePlayPause,
+                        nextAction: nextWord
+                    )
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Playback controls")
+                    .accessibilityHint("Previous, play or pause, next")
                 }
                 .padding(.vertical, 8)
             }
@@ -186,6 +196,23 @@ struct CategoryListView: View {
             }
         }
         .navigationTitle("\(category) (\(filteredItems.count))")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    if isPlaying {
+                        stopPlayback()
+                    } else {
+                        startPlayback()
+                    }
+                } label: {
+                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                }
+                .accessibilityLabel("Play category")
+            }
+        }
+        .onAppear {
+            setupDelegate()
+        }
         .sheet(item: $editingItem) { item in
             NavigationView {
                 AddEditWordSheet(
@@ -202,11 +229,29 @@ struct CategoryListView: View {
         .onDisappear {
             stopPlayback()
         }
+        .safeAreaInset(edge: .bottom) {
+            if isPlaying || isPaused {
+                MiniPlayerBarView(
+                    thaiWord: currentIndex < filteredItems.count ? filteredItems[currentIndex].thai : "",
+                    positionText: "\(currentIndex + 1) of \(filteredItems.count)",
+                    burmeseWord: currentIndex < filteredItems.count ? (filteredItems[currentIndex].burmese ?? "") : "",
+                    rate: $ttsRate,
+                    isPlaying: isPlaying,
+                    isPaused: isPaused,
+                    hasPrevious: currentIndex > 0,
+                    hasNext: currentIndex < filteredItems.count - 1,
+                    previousAction: previousWord,
+                    togglePlayPauseAction: togglePlayPause,
+                    nextAction: nextWord
+                )
+            }
+        }
     }
     
     // MARK: - Playback Control Methods
     
     private func togglePlayPause() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         if isPlaying {
             if isPaused {
                 // Resume playback
@@ -224,12 +269,14 @@ struct CategoryListView: View {
     }
     
     private func previousWord() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         guard currentIndex > 0 else { return }
         currentIndex -= 1
         speakCurrentWord()
     }
     
     private func nextWord() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         guard currentIndex < filteredItems.count - 1 else {
             stopPlayback()
             return
@@ -257,7 +304,8 @@ struct CategoryListView: View {
         isPaused = false
     }
     
-    private func speakCurrentWord() {
+
+        private func speakCurrentWord() {
         guard currentIndex < filteredItems.count else {
             stopPlayback()
             return
@@ -266,24 +314,37 @@ struct CategoryListView: View {
         let word = filteredItems[currentIndex].thai
         let utterance = AVSpeechUtterance(string: word)
         utterance.voice = AVSpeechSynthesisVoice(language: "th-TH")
-        utterance.rate = 0.5
+        utterance.rate = Float(ttsRate)
         
         synthesizer.stopSpeaking(at: .immediate)
         synthesizer.speak(utterance)
         
-        // Schedule next word
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            if self.isPlaying && !self.isPaused {
-                if self.currentIndex < self.filteredItems.count - 1 {
-                    self.currentIndex += 1
-                    self.speakCurrentWord()
-                } else {
-                    self.stopPlayback()
-                }
-            }
+            // speech completion handled by delegate
+    }
+    
+    // MARK: - Delegate helpers
+    private func setupDelegate() {
+        synthesizer.delegate = speechDelegate
+        speechDelegate.onFinishUtterance = {
+            autoAdvance()
         }
     }
     
+    private func autoAdvance() {
+        guard isPlaying && !isPaused else { return }
+        if currentIndex < filteredItems.count - 1 {
+            currentIndex += 1
+            progress = 0
+            withAnimation(.linear(duration: 2.0)) {
+                progress = 1
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                speakCurrentWord()
+            }
+        } else {
+            stopPlayback()
+        }
+    }
     // MARK: - Helper Methods
     
     private func binding(for entry: VocabularyEntry) -> Binding<VocabularyEntry> {
