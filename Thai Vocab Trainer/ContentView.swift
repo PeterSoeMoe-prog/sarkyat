@@ -1,6 +1,8 @@
 import SwiftUI
 import AudioToolbox // Still needed for AudioServicesPlaySystemSound
+#if canImport(UIKit)
 import UIKit
+#endif
 
 // MARK: - App Enums and Structs (Assume these are defined elsewhere or defined here for completeness)
 
@@ -12,6 +14,8 @@ enum VocabularyStatus: String, CaseIterable, Identifiable, Codable {
     case ready = "Ready"
 
     var id: String { self.rawValue }
+
+ 
 
     var emoji: String {
         switch self {
@@ -62,9 +66,19 @@ enum AppTheme: String, CaseIterable, Identifiable {
 }
 
 extension Notification.Name {
+    static let openSettings = Notification.Name("openSettings")
     static let editVocabularyEntry = Notification.Name("editVocabularyEntry")
 }
 */
+
+// Fresh: measure the height of the bottom inset (buttons + search) so we can align the list fade precisely
+private struct BottomBarHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 
 // Assume IntroView and VocabularyListView are separate SwiftUI Views
 // (They are external to ContentView in the original code, which is good practice)
@@ -173,28 +187,30 @@ struct VocabularyRowView: View {
         HStack {
             VStack(alignment: .leading) {
                 Text(showThaiPrimary ? item.thai : item.burmese ?? "N/A")
-                    .font(.headline)
+                    .font(showThaiPrimary ? .system(size: 24, weight: .bold) : .headline)
                     .foregroundColor(item.status == .ready ? .green : .primary)
                 if showBurmeseForID == item.id {
                     Text(showThaiPrimary ? (item.burmese ?? "N/A") : item.thai)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                if let category = item.category, !category.isEmpty {
+
+            }
+
+            Spacer()
+            HStack(spacing: 4) {
+                Text("\(item.count)")
+                    .font(.caption)
+                    .foregroundColor(.yellow)
+                if let category = item.category?.trimmingCharacters(in: .whitespacesAndNewlines), !category.isEmpty {
                     Text(category)
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
                 }
             }
-            if let categoryInline = item.category, !categoryInline.isEmpty {
-                Text(categoryInline)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
-            Text("\(item.count)")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            .font(.caption)
+            .foregroundColor(.secondary)
             Button(action: {
                 showBurmeseForID = (showBurmeseForID == item.id) ? nil : item.id
                 playTapSound()
@@ -212,69 +228,31 @@ struct VocabularyRowView: View {
 }
 */
 
-// Global func loadCSV (this remains outside ContentView, as it was in your original setup)
-// Refined loadCSV for better clarity and explicit file paths
+// Global func loadCSV (kept outside ContentView so other helpers like
+// CategoryViewModel and CategoryWordsView can reuse the same loader).
 func loadCSV() -> [VocabularyEntry] {
     let fileManager = FileManager.default
-    let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    let documentsCSVURL = documentsURL.appendingPathComponent("vocab.csv")
-
-    // Attempt to load from Documents Directory
-    do {
-        let content = try String(contentsOf: documentsCSVURL, encoding: .utf8)
-        print("CSV Raw Content from Documents:\n\(content)")  // Add this here
-
-        let entries = parseCSV(content: content)
-        print("✅ Successfully loaded CSV from documents directory: \(documentsCSVURL.lastPathComponent). Parsed \(entries.count) items.")
-        return entries
-    } catch {
-        print("❌ Failed to read CSV from documents directory: \(error.localizedDescription). Falling back to app bundle.")
+    let docsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let fileURL = docsURL.appendingPathComponent("vocab.csv")
+    guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+        print("Failed to read vocab.csv from Documents folder")
+        return []
     }
-
-    // Fallback: Attempt to load from App Bundle
-    if let bundlePath = Bundle.main.path(forResource: "vocab", ofType: "csv") {
-        do {
-            let bundleContent = try String(contentsOfFile: bundlePath, encoding: .utf8)
-            let entries = parseCSV(content: bundleContent)
-            print("✅ Successfully loaded CSV from app bundle. Parsed \(entries.count) items.")
-            return entries
-        } catch {
-            print("❌ Failed to read CSV from bundle: \(error.localizedDescription)")
+    let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
+    guard lines.count > 1 else { return [] } // must have header + at least one row
+    var entries: [VocabularyEntry] = []
+    for line in lines.dropFirst() { // skip header
+        let cols = line.components(separatedBy: ",")
+        if cols.count >= 4 {
+            let status = VocabularyStatus(rawValue: cols[3].capitalized) ?? .queue
+            let count = Int(cols[2]) ?? 0
+            let burmese = cols[1].isEmpty ? nil : cols[1]
+            let category = cols.count > 4 ? (cols[4].isEmpty ? nil : cols[4]) : nil
+            entries.append(VocabularyEntry(thai: cols[0], burmese: burmese, count: count, status: status, category: category))
         }
     }
-
-    // If both fail
-    return []
+    return entries
 }
-
-// Helper to parse CSV content, extracted for reusability
-private func parseCSV(content: String) -> [VocabularyEntry] {
-    var results: [VocabularyEntry] = []
-    let lines = content.components(separatedBy: .newlines).filter { !$0.isEmpty }
-
-    for (index, line) in lines.enumerated() {
-        if index == 0 { continue } // Skip header
-        print("Parsing line \(index): '\(line)'")
-        let columns = line.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        print("Columns count: \(columns.count), columns: \(columns)")
-        if columns.count >= 4 {
-            let thai = columns[0]
-            let burmese = columns[1].isEmpty ? nil : columns[1]
-            let count = Int(columns[2]) ?? 0
-            let statusRaw = columns[3].lowercased()
-            print("Status raw value: \(statusRaw)")
-            let status = VocabularyStatus(rawValue: statusRaw.capitalized) ?? .queue
-            let category = columns.count > 4 ? (columns[4].isEmpty ? nil : columns[4]) : nil
-            results.append(VocabularyEntry(thai: thai, burmese: burmese, count: count, status: status, category: category))
-        } else {
-            print("CSV Parse Warning: Skipping malformed line \(index + 1): '\(line)' (not enough columns)")
-        }
-    }
-    print("Parsed total entries: \(results.count)")
-
-    return results
-}
-
 
 struct ContentView: View {
 
@@ -283,20 +261,45 @@ struct ContentView: View {
     @State private var filteredItems: [VocabularyEntry] = []
     @State private var showBurmeseForID: UUID? = nil
     @State private var selectedStatus: VocabularyStatus? = nil
+    @State private var selectedCategory: String? = nil
     @State private var searchText: String = ""
+    // Debounce work item for search to avoid filtering on every keystroke
+    @State private var searchDebounceWorkItem: DispatchWorkItem? = nil
     @State private var showAddSheet = false
-    @State private var isEditing = false
+    @State private var showSettingsSheet = false
     @State private var editingItem: VocabularyEntry? = nil
     @State private var showThaiPrimary = true
     @State private var sortByCountAsc = true
+    // Show Daily Quiz from bottom cluster
+    @State private var showDailyQuiz: Bool = false
+    // Global TTS player for this screen
+    @StateObject private var ttsPlayer = TTSQueuePlayer()
     @State private var goHome = false
+    @State private var showCategories = false
+    // Open a specific category page pushed from CounterView
+    @State private var openCategoryFromCounter: Bool = false
+    @State private var categoryToOpen: String = ""
 
     @State private var currentOption: Option = .queue
     @EnvironmentObject var theme: ThemeManager
     @AppStorage("remainingSeconds") private var remainingSeconds: Int = 0
     @AppStorage("remainingTimestamp") private var remainingTimestamp: Double = 0
     @AppStorage("boostType") private var boostTypeRaw: String = BoostType.mins.rawValue
+    @AppStorage("lastVocabID") private var storedLastVocabID: String = ""
     @State private var didAutoOpen: Bool = false
+    // Trigger to programmatically expand/focus the search box
+    @State private var activateSearchNow: Bool = false
+    // Reflects whether the search box is expanded/active
+    @State private var searchActive: Bool = false
+    // Debouncer for search input
+    @State private var searchDebounce: DispatchWorkItem? = nil
+    // Controls whether the search box is visible at the bottom. Hidden by default until user swipes up the play group
+    @State private var showSearchBox: Bool = false
+    
+    // Fresh: dynamic height of the bottom bar region for aligning the fade
+    @State private var bottomBarHeight: CGFloat = 0
+    // Fresh: fade thickness
+    private let fadeThickness: CGFloat = 72
 
     // State for New/Edit Word Sheet (can be extracted to a separate ViewModel if more complex logic is needed)
     @State private var newThai = ""
@@ -335,15 +338,21 @@ struct ContentView: View {
             }
         }
     }
+
     var totalCount: Int {
-            items.reduce(0) { $0 + $1.count } // This sums the 'count' of all items
-        }
+        items.reduce(0) { $0 + $1.count }
+    }
 
     var body: some View {
         NavigationStack {
             
+            
             mainContent
                 .navigationBarTitleDisplayMode(.inline)
+                .onAppear {
+                    autoOpenCounterIfNeeded()
+                }
+                .withNotificationBell()
                 
                 .navigationDestination(isPresented: $goHome) {
                    
@@ -355,6 +364,12 @@ struct ContentView: View {
                               readyCount: items.filter { $0.status == .ready }.count) // Pass items.count here
                     
                     
+                }
+                .navigationDestination(isPresented: $showCategories) {
+                    VocabCategoryView()
+                }
+                .navigationDestination(isPresented: $openCategoryFromCounter) {
+                    CategoryListView(items: $items, category: categoryToOpen)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .addWord)) { _ in
                     showAddSheet = true
@@ -369,10 +384,39 @@ struct ContentView: View {
                     goHome = true
                     playTapSound()
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
+                    showSettingsSheet = true
+                    playTapSound()
+                }
+                // Receive request from CounterView to open a full-page category list
+                .onReceive(NotificationCenter.default.publisher(for: .openCategoryList)) { note in
+                    if let cat = note.object as? String {
+                        categoryToOpen = cat
+                        openCategoryFromCounter = true
+                    }
+                }
+                // Deep-link: forward notification routing to open the specific CounterView
+                .onReceive(NotificationCenter.default.publisher(for: .openCounterFromNotification)) { note in
+                    // Suppress any automatic resume/restore and mark as handled
+                    UserDefaults.standard.set(true, forKey: "suppressCounterRestoreOnce")
+                    didAutoOpen = true
+                    // Forward entire payload (UUID or [String: Any]) so VocabularyListView can fall back to Thai match
+                    NotificationCenter.default.post(name: .openCounter, object: note.object)
+                }
+                // Note: DeepLinkStore is consumed only by VocabularyListView to avoid racing subscriptions
+                // When coming from IntroView's Search tap, auto-activate search box
+                .onReceive(NotificationCenter.default.publisher(for: Notification.Name("activateSearch"))) { _ in
+                    DispatchQueue.main.async {
+                        // Ensure the search UI is visible before attempting to focus it
+                        showSearchBox = true
+                        activateSearchNow = true
+                    }
+                }
                 .sheet(isPresented: $showAddSheet) {
                     AddEditWordSheet(
                         isAdding: true,
                         item: .constant(VocabularyEntry(thai: newThai, burmese: newBurmese.isEmpty ? nil : newBurmese, count: Int(newCount) ?? 0, status: newStatus)), // Pass initial values
+                        existingCategories: uniqueCategories,
                          onSave: { newItem in
                             items.insert(newItem, at: 0)
                             resetNewWordFields()
@@ -385,24 +429,28 @@ struct ContentView: View {
                         }
                     )
                 }
-                .sheet(isPresented: $isEditing) {
-                    if let item = editingItem,
-                       let idx = items.firstIndex(where: { $0.id == item.id }) {
+                .sheet(isPresented: $showSettingsSheet) {
+                    SettingsView()
+                }
+                .sheet(isPresented: $showDailyQuiz) {
+                    DailyQuizView()
+                }
+                .sheet(item: $editingItem) { item in
+                    if let idx = items.firstIndex(where: { $0.id == item.id }) {
                         AddEditWordSheet(
                             isAdding: false,
-                            item: $items[idx], // Pass a binding to the actual item in the array
+                            item: $items[idx],
                             onSave: { _ in
-                                isEditing = false
+                                editingItem = nil
                                 playTapSound()
                             },
                             onCancel: {
-                                // If cancelled during edit, revert changes if necessary or just dismiss
-                                isEditing = false
+                                editingItem = nil
                             }
                         )
                     } else {
                         Text("Error loading item for editing.")
-                            .onAppear { isEditing = false }
+                            .onAppear { editingItem = nil }
                     }
                 }
                 .onAppear(perform: setupInitialState)
@@ -413,13 +461,20 @@ struct ContentView: View {
                     writeItemsToCSV()
                 }
                 .onChange(of: searchText) {
-                    filterItems()
+                    // Debounce to reduce redundant filtering while typing
+                    searchDebounce?.cancel()
+                    let work = DispatchWorkItem { filterItems() }
+                    searchDebounce = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .nextVocabulary)) { _ in
+                    // Only handle nextVocabulary if we're NOT in a category-specific context
+                    guard selectedCategory == nil else { return }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .editVocabularyEntry)) { notification in
                     if let id = notification.object as? UUID,
                        let item = items.first(where: { $0.id == id }) {
                         editingItem = item
-                        isEditing = true
                     }
                 }
                 .alert("Error", isPresented: $showingAlert) {
@@ -449,26 +504,26 @@ struct ContentView: View {
                             defer { url.stopAccessingSecurityScopedResource() }
                             do {
                                 let data = try Data(contentsOf: url)
-                                if let content = String(data: data, encoding: .utf8) {
-                                    let importedItems = parseCSV(content: content)
+                                if String(data: data, encoding: .utf8) != nil {
+                                    let importedItems: [VocabularyEntry] = [] // CSV import disabled
                                     if !importedItems.isEmpty {
                                         items = importedItems
                                         saveItems()
-                                        alertMessage = "Successfully imported \(importedItems.count) items"
+                                        // alert disabled
                                         showingAlert = true
                                     } else {
-                                        alertMessage = "No valid items found in the CSV file"
+                                        // alert disabled
                                         showingAlert = true
                                     }
                                 }
                             } catch {
-                                alertMessage = "Error reading file: \(error.localizedDescription)"
+                                // alert disabled
                                 showingAlert = true
                             }
                             url.stopAccessingSecurityScopedResource()
                         }
-                    case .failure(let error):
-                        alertMessage = "Error selecting file: \(error.localizedDescription)"
+                    case .failure(_):
+                        // alert disabled
                         showingAlert = true
                     }
                 }
@@ -476,11 +531,10 @@ struct ContentView: View {
         
     }
 
-    // MARK: - Views (keeping as subviews)
+    // MARK: - Views 
 
     private var mainContent: some View {
         VStack(spacing: 0) {
-            collapsibleSearchBar
             filterButtons
             VocabularyListView(
                 items: $items,
@@ -505,14 +559,118 @@ struct ContentView: View {
                     playTapSound()
                 }
             )
+            .environmentObject(ttsPlayer)
             .listStyle(PlainListStyle())
+            // Fresh: fade-out the list content using a bottom-aligned mask that starts right above the bottom bar
+            .mask(listFadeMask)
+            // Keep the bottom bar height updated
+            .onPreferenceChange(BottomBarHeightKey.self) { h in
+                bottomBarHeight = h
+            }
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: searchActive ? 0 : 8) {
+                    // Floating bottom bar (removed from layout entirely while searching)
+                    if !searchActive {
+                        BottomTabMock(
+                            centerAction: { resumeSession() },
+                            plusAction: {
+                                showAddSheet = true
+                                playTapSound()
+                            },
+                            categoryAction: {
+                                showCategories = true
+                                playTapSound()
+                            },
+                            dailyQuizAction: {
+                                showDailyQuiz = true
+                                playTapSound()
+                            },
+                            homeAction: {
+                                @AppStorage("sessionPaused") var sessionPaused: Bool = false
+                                sessionPaused = true // prevent auto-resume on IntroView
+                                goHome = true
+                                playTapSound()
+                            }
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+
+                    // Search box placed under the buttons group
+                    if showSearchBox {
+                        collapsibleSearchBar
+                            .padding(.horizontal, 8)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .padding(.top, searchActive ? 0 : 6)
+                .padding(.horizontal, 8)
+                .padding(.bottom, searchActive ? 0 : 6)
+                .background(Color.clear) // removed gray block background
+                // Fresh: report height of the whole bottom inset (buttons + search)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: BottomBarHeightKey.self, value: geo.size.height)
+                    }
+                )
+                // Animate reveal/hide of the search box
+                .animation(.easeInOut(duration: 0.25), value: showSearchBox)
+                // Detect swipe-up gesture anywhere on the bottom overlay (play button group area)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 20, coordinateSpace: .local)
+                        .onEnded { value in
+                            // Reveal search box when user swipes upward
+                            if value.translation.height < -20 {
+                                withAnimation(.spring()) {
+                                    showSearchBox = true
+                                }
+                                // Programmatically expand and focus the search field after insertion
+                                DispatchQueue.main.async {
+                                    activateSearchNow = true
+                                }
+                            }
+                        }
+                )
+            }
         }
     }
 
     private var collapsibleSearchBar: some View {
-        CollapsibleSearchBox(searchText: $searchText)
+        CollapsibleSearchBox(
+            searchText: $searchText,
+            showThaiPrimary: $showThaiPrimary,
+            activateNow: $activateSearchNow,
+            isActive: $searchActive,
+            onClose: {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showSearchBox = false
+                }
+            }
+        )
             .padding(.vertical, 6)
             .padding(.horizontal, 8)
+    }
+
+    // Fresh: Mask used to create a smooth fade for the list. Disabled entirely when search is active.
+    @ViewBuilder
+    private var listFadeMask: some View {
+        if searchActive {
+            // No fade when search field is focused
+            Color.white
+        } else {
+            GeometryReader { proxy in
+                let totalH = proxy.size.height
+                let fadeStartY = max(0, totalH - bottomBarHeight - fadeThickness)
+                LinearGradient(
+                    gradient: Gradient(stops: [
+                        .init(color: .white, location: 0),
+                        .init(color: .white, location: min(1, fadeStartY / max(totalH, 1))),
+                        .init(color: .clear, location: 1)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+        }
     }
 
     private var filterButtons: some View {
@@ -531,16 +689,23 @@ struct ContentView: View {
                 .cornerRadius(8)
             }
 
-            Button {
-                cycleOption()
-                selectedStatus = currentOption.status
-                filterItems()
-                playTapSound()
-            } label: {
-                Text(currentOption.label)
+            if selectedCategory == nil {
+                Button {
+                    cycleOption()
+                    selectedStatus = currentOption.status
+                    filterItems()
+                    playTapSound()
+                } label: {
+                    Text(currentOption.label)
+                        .padding(6)
+                }
+            } else {
+                Text("All")
+                    .bold()
                     .padding(6)
             }
 
+            // Category menu removed per request
 
             Spacer()
         }
@@ -549,6 +714,54 @@ struct ContentView: View {
     }
 
     // MARK: - Helper Methods
+
+    // Normalize text for search: lowercase and remove diacritics
+    private func normalized(_ s: String) -> String {
+        s.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: .current)
+    }
+
+    // Simple Levenshtein distance for fuzzy search
+    private func levenshtein(_ aStr: String, _ bStr: String) -> Int {
+        let a = Array(aStr)
+        let b = Array(bStr)
+        if a.isEmpty { return b.count }
+        if b.isEmpty { return a.count }
+        var prev = Array(0...b.count)
+        var curr = Array(repeating: 0, count: b.count + 1)
+        for (i, ca) in a.enumerated() {
+            curr[0] = i + 1
+            for (j, cb) in b.enumerated() {
+                let cost = (ca == cb) ? 0 : 1
+                curr[j + 1] = min(
+                    prev[j + 1] + 1,      // deletion
+                    curr[j] + 1,          // insertion
+                    prev[j] + cost        // substitution
+                )
+            }
+            swap(&prev, &curr)
+        }
+        return prev[b.count]
+    }
+
+    // Fuzzy match helper: true if contains or within distance threshold
+    private func fuzzyMatch(haystack: String, needle: String) -> Bool {
+        let h = normalized(haystack)
+        let n = normalized(needle)
+        if h.contains(n) { return true }
+        // Compare against words to avoid excessive distance on long strings
+        let tokens = h.split{ !$0.isLetter && !$0.isNumber }.map(String.init)
+        let threshold: Int = {
+            switch n.count {
+            case 0...4: return 1
+            case 5...8: return 2
+            default: return 3
+            }
+        }()
+        for t in tokens where !t.isEmpty {
+            if levenshtein(t, n) <= threshold { return true }
+        }
+        return false
+    }
 
     private func getDocumentsDirectory() -> URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -569,7 +782,13 @@ struct ContentView: View {
         if sessionPaused {
             sessionPaused = false
         }
-        NotificationCenter.default.post(name: .nextVocabulary, object: nil)
+        if let uuid = UUID(uuidString: storedLastVocabID),
+           let last = items.first(where: { $0.id == uuid }),
+           last.status != .ready {
+            NotificationCenter.default.post(name: .openCounter, object: uuid)
+        } else {
+            NotificationCenter.default.post(name: .nextVocabulary, object: nil)
+        }
     }
 
     private func playTapSound() {
@@ -595,9 +814,14 @@ struct ContentView: View {
         }
         // Observer for Export CSV action triggered from CollapsibleSearchBox
         NotificationCenter.default.addObserver(forName: Notification.Name("exportCSV"), object: nil, queue: .main) { _ in
-            writeItemsToCSV()
-            alertMessage = "✅ Exported vocabulary to 'vocab.csv' in your Documents directory."
-            showingAlert = true
+            do {
+                let url = try CSVManager.makeTempCSV(from: items)
+                shareURL = url
+                showingShare = true
+            } catch {
+                alertMessage = "Failed to create CSV: \(error.localizedDescription)"
+                showingAlert = true
+            }
             playTapSound()
         }
         // Observer for Clean action triggered from CollapsibleSearchBox
@@ -687,82 +911,140 @@ struct ContentView: View {
     }
 
     private func writeItemsToCSV() {
-        let fileManager = FileManager.default
-        let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let fileURL = documentsURL.appendingPathComponent("vocab.csv")
+        // Temporarily disabled heavy file-I/O. Replace with new implementation later.
+        CSVManager.exportToDocuments(items)
+    }
 
-        var csvString = "thai,burmese,count,status,category\n" // Start with the header
+    private var uniqueCategories: [String] {
+        let cats = items.compactMap { $0.category?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return Array(Set(cats)).sorted()
+    }
 
-        for item in items {
-            let thai = item.thai.replacingOccurrences(of: ",", with: "")
-            let burmese = (item.burmese ?? "").replacingOccurrences(of: ",", with: "")
-            let count = String(item.count)
-            let status = item.status.rawValue
-
-            let category = item.category?.replacingOccurrences(of: ",", with: "") ?? ""
-            csvString += "\(thai),\(burmese),\(count),\(status),\(category)\n"
+    private var categoryTotalCounts: [String: Int] {
+        items.reduce(into: [:]) { dict, entry in
+            if let cat = entry.category?.trimmingCharacters(in: .whitespacesAndNewlines), !cat.isEmpty {
+                dict[cat, default: 0] += 1
+            }
         }
+    }
 
-        do {
-            try csvString.write(to: fileURL, atomically: true, encoding: .utf8)
-            print("✅ Successfully wrote items to vocab.csv in Documents directory.")
-            // Prepare share sheet
-            shareURL = fileURL
-            showingShare = true
-        } catch {
-            print("❌ Error writing items to vocab.csv: \(error.localizedDescription)")
-            alertMessage = "Error writing vocabulary to CSV: \(error.localizedDescription)"
-            showingAlert = true
+    private var categoryReadyCounts: [String: Int] {
+        items.filter { $0.status == .ready }.reduce(into: [:]) { dict, entry in
+            if let cat = entry.category?.trimmingCharacters(in: .whitespacesAndNewlines), !cat.isEmpty {
+                dict[cat, default: 0] += 1
+            }
+        }
+    }
+
+    private var categoryNotReadyCounts: [String: Int] {
+        Dictionary(uniqueKeysWithValues: categoryTotalCounts.map { key, total in
+            (key, total - (categoryReadyCounts[key] ?? 0))
+        })
+    }
+
+    private var readyTotal: Int {
+        items.filter { $0.status == .ready }.count
+    }
+
+    private var categoryLabelText: String {
+        if let cat = selectedCategory {
+            let nr = categoryNotReadyCounts[cat] ?? 0
+            let total = categoryTotalCounts[cat] ?? 0
+            return "\(cat) \(nr)/\(total)"
+        } else {
+            return "All \(items.count - readyTotal)/\(items.count)"
+        }
+    }
+
+    private var categoryCounts: [String: Int] {
+        items.reduce(into: [:]) { dict, entry in
+            if let cat = entry.category?.trimmingCharacters(in: .whitespacesAndNewlines), !cat.isEmpty {
+                dict[cat, default: 0] += 1
+            }
         }
     }
 
     private func filterItems() {
-        // Apply filtering differently for .recent
-        filteredItems = items.filter { item in
-            let statusMatch = (currentOption == .recent) || (selectedStatus == nil || item.status == selectedStatus)
-            let searchMatch = searchText.isEmpty ||
-                item.thai.localizedCaseInsensitiveContains(searchText) ||
-                (item.burmese?.localizedCaseInsensitiveContains(searchText) ?? false)
-            return statusMatch && searchMatch
+        // Simple per-session cache for normalized strings to avoid recomputing per keystroke
+        struct SearchCache {
+            static var map: [UUID: (thai: String, burmese: String?)] = [:]
         }
+        // Capture inputs to avoid data races and allow staleness checks
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let capturedOption = currentOption
+        let capturedSelectedStatus = selectedStatus
+        let capturedSelectedCategory = selectedCategory
+        let capturedSortAsc = sortByCountAsc
+        let sourceItems = items // copy the value type array reference
 
-        // Preserve original CSV order for .all and .recent; sort by count only for specific status filters
-        if currentOption != .all && currentOption != .recent {
-            filteredItems.sort {
-                sortByCountAsc ? $0.count < $1.count : $0.count > $1.count
+        DispatchQueue.global(qos: .userInitiated).async {
+            let hasQuery = !q.isEmpty
+            var localCache = SearchCache.map
+
+            // Filter
+            var result = sourceItems.filter { item in
+                if !hasQuery && capturedOption != .recent {
+                    if let sel = capturedSelectedStatus, item.status != sel { return false }
+                }
+                if let selCat = capturedSelectedCategory {
+                    let cat = item.category?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if cat != selCat { return false }
+                }
+                if hasQuery {
+                    // Use cached normalized strings
+                    let norm = localCache[item.id] ?? {
+                        let thai = item.thai.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let bur = item.burmese?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let tuple = (thai: thai, burmese: bur)
+                        localCache[item.id] = tuple
+                        return tuple
+                    }()
+                    if fuzzyMatch(haystack: norm.thai, needle: q) { return true }
+                    if let bur = norm.burmese, fuzzyMatch(haystack: bur, needle: q) { return true }
+                    return false
+                }
+                return true
+            }
+
+            // Sort
+            if capturedOption == .all || capturedOption == .recent {
+                let weight: [VocabularyStatus: Int] = [.drill: 0, .queue: 1, .ready: 2]
+                result.sort {
+                    let w0 = weight[$0.status] ?? 3
+                    let w1 = weight[$1.status] ?? 3
+                    if w0 == w1 { return $0.count < $1.count }
+                    return w0 < w1
+                }
+            } else {
+                result.sort { capturedSortAsc ? $0.count < $1.count : $0.count > $1.count }
+            }
+
+            // Publish back on main if inputs still match
+            DispatchQueue.main.async {
+                let currentQ = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if currentQ == q &&
+                    currentOption == capturedOption &&
+                    selectedStatus == capturedSelectedStatus &&
+                    selectedCategory == capturedSelectedCategory &&
+                    sortByCountAsc == capturedSortAsc {
+                    filteredItems = result
+                    // Update shared cache
+                    SearchCache.map = localCache
+                }
             }
         }
     }
 
     private func importCSVManually() {
-        let loadedItems = loadCSV()
-        if !loadedItems.isEmpty {
-            items = loadedItems
-            // saveItems() and filterItems() are called automatically by onChange(of: items)
-            playTapSound()
-            print("✅ Manually imported data from vocab.csv.")
-        } else {
-            print("❌ No items loaded from CSV during manual import. Check CSV file for errors.")
-            alertMessage = "No items loaded from CSV. Please check the 'vocab.csv' file in the app's documents directory for errors or ensure it exists."
-            showingAlert = true
-        }
+        // Legacy manual import temporarily disabled
+        CSVManager.importFromDocuments()
     }
 
     // This function seems to be for clearing the list and CSV, ensure it's intended.
     func deleteAllEntries() {
         items.removeAll()
-        let docURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let csvURL = docURL.appendingPathComponent("vocab.csv")
-        let header = "thai,burmese,count,status\n"
-        do {
-            try header.write(to: csvURL, atomically: true, encoding: .utf8)
-            print("✅ vocab.csv cleared in Documents directory.")
-        } catch {
-            print("❌ Error clearing vocab.csv: \(error.localizedDescription)")
-            alertMessage = "Error clearing vocab.csv: \(error.localizedDescription)"
-            showingAlert = true
-        }
-        // filterItems() and saveItems() are called automatically by onChange(of: items)
+        // Legacy CSV file clearing disabled
+        // filterItems() and saveItems() are handled automatically by onChange(of: items)
     }
 
     private func resetNewWordFields() {
@@ -781,6 +1063,12 @@ struct AddEditWordSheet: View {
     @Binding var item: VocabularyEntry // Binding allows direct modification of the original item
     let onSave: (VocabularyEntry) -> Void
     let onCancel: () -> Void
+    let existingCategories: [String]
+
+    // Daily study tracking (shared with CounterView logic)
+    @AppStorage("studyHistoryJSON") private var studyHistoryJSON: String = ""
+    @AppStorage("todayCount") private var todayCount: Int = 0
+    @AppStorage("todayDate") private var todayDate: String = ""
 
     // Internal state for text fields, allows live editing without updating the source binding until save
     @State private var thaiText: String
@@ -792,16 +1080,50 @@ struct AddEditWordSheet: View {
     @State private var showingSaveAlert = false
     @State private var saveAlertMessage = ""
 
-    init(isAdding: Bool, item: Binding<VocabularyEntry>, onSave: @escaping (VocabularyEntry) -> Void, onCancel: @escaping () -> Void) {
+    private static let countFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.groupingSeparator = ","
+        f.usesGroupingSeparator = true
+        return f
+    }()
+
+    private static func formatCount(_ value: Int) -> String {
+        countFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    private static func parseCount(_ text: String) -> Int? {
+        let digits = text.filter { $0.isNumber }
+        return Int(digits)
+    }
+
+    private var categorySuggestions: [String] {
+        guard isAdding else { return [] }
+        let q = categoryText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return [] }
+        let base = existingCategories
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let filtered = base.filter { $0.lowercased().hasPrefix(q) }
+        let unique = Array(Set(filtered))
+        return unique.sorted()
+    }
+
+    init(isAdding: Bool,
+         item: Binding<VocabularyEntry>,
+         existingCategories: [String] = [],
+         onSave: @escaping (VocabularyEntry) -> Void,
+         onCancel: @escaping () -> Void) {
         self.isAdding = isAdding
         self._item = item
         self.onSave = onSave
         self.onCancel = onCancel
+        self.existingCategories = existingCategories
 
         // Initialize internal @State variables from the binding's wrappedValue
         _thaiText = State(initialValue: item.wrappedValue.thai)
         _burmeseText = State(initialValue: item.wrappedValue.burmese ?? "")
-        _countText = State(initialValue: String(item.wrappedValue.count))
+        _countText = State(initialValue: Self.formatCount(item.wrappedValue.count))
         _statusSelection = State(initialValue: item.wrappedValue.status)
         _categoryText = State(initialValue: item.wrappedValue.category ?? "")
     }
@@ -810,16 +1132,73 @@ struct AddEditWordSheet: View {
         NavigationView {
             Form {
                 Section(isAdding ? "New Word" : "Edit Word") {
-                    TextField("Thai", text: $thaiText)
-                    TextField("Burmese (optional)", text: $burmeseText)
+                    HStack {
+                            TextField("Thai", text: $thaiText)
+                                .textInputAutocapitalization(.never)
+                            Button(action: {
+                                if let clipboardText = UIPasteboard.general.string {
+                                    thaiText = clipboardText
+                                }
+                            }) {
+                                Image(systemName: "doc.on.clipboard")
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    HStack {
+                            TextField("Burmese (optional)", text: $burmeseText)
+                                .textInputAutocapitalization(.never)
+                            Button(action: {
+                                if let clipboardText = UIPasteboard.general.string {
+                                    burmeseText = clipboardText
+                                }
+                            }) {
+                                Image(systemName: "doc.on.clipboard")
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
                     TextField("Count", text: $countText)
                         .keyboardType(.numberPad)
-                    Picker("Status", selection: $statusSelection) {
-                        ForEach(VocabularyStatus.allCases) { status in
-                            Text("\(status.emoji) \(status.rawValue)").tag(status)
+                        .onChange(of: countText) { _, newValue in
+                            let digits = newValue.filter { $0.isNumber }
+                            if let number = Int(digits) {
+                                let formatted = Self.formatCount(number)
+                                if formatted != newValue {
+                                    countText = formatted
+                                }
+                            } else {
+                                countText = ""
+                            }
+                        }
+                    if isAdding {
+                        Picker("Status", selection: $statusSelection) {
+                            ForEach(VocabularyStatus.allCases) { status in
+                                Text("\(status.emoji) \(status.rawValue)").tag(status)
+                            }
                         }
                     }
-                    TextField("Category (optional)", text: $categoryText)
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField("Category (optional)", text: $categoryText)
+                        if !categorySuggestions.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(categorySuggestions, id: \.self) { cat in
+                                        Button {
+                                            categoryText = cat
+                                        } label: {
+                                            Text(cat)
+                                                .font(.caption)
+                                                .padding(.vertical, 4)
+                                                .padding(.horizontal, 8)
+                                                .background(Color.blue.opacity(0.15))
+                                                .foregroundColor(.primary)
+                                                .clipShape(Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                    }
                     
                 }
             }
@@ -846,33 +1225,267 @@ struct AddEditWordSheet: View {
     }
 
     private func saveAction() {
-        guard let count = Int(countText.trimmingCharacters(in: .whitespacesAndNewlines)),
+        guard let count = Self.parseCount(countText),
               !thaiText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             saveAlertMessage = "Thai word is required and Count must be a valid number."
             showingSaveAlert = true
             return
         }
-
+        print("🧪 AddEditWordSheet.saveAction isAdding=\(isAdding), id=\(item.id), oldCount=\(item.count)")
+        let oldCount = item.count // capture before mutation for delta computation
         var updatedItem = $item.wrappedValue // Start with current item data
         updatedItem.thai = thaiText.trimmingCharacters(in: .whitespacesAndNewlines)
         updatedItem.burmese = burmeseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : burmeseText.trimmingCharacters(in: .whitespacesAndNewlines)
         updatedItem.count = count
-        updatedItem.status = statusSelection
+        if isAdding {
+            updatedItem.status = statusSelection
+        }
         updatedItem.category = categoryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : categoryText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // If adding, create a new ID. If editing, preserve existing ID.
         let finalItem = isAdding ? VocabularyEntry(thai: updatedItem.thai, burmese: updatedItem.burmese, count: updatedItem.count, status: updatedItem.status, category: updatedItem.category) : updatedItem
+        print("🧪 AddEditWordSheet.finalItem id=\(finalItem.id), count=\(finalItem.count), isAdding=\(isAdding)")
 
         // Update the binding to the original item directly (for editing)
         // or pass the new item back (for adding)
         if !isAdding {
             item = finalItem // This updates the original item in ContentView's `items` array
+            // Count manual edits toward today's hits using delta
+            let delta = count - oldCount
+            if delta != 0 { updateTodayCount(by: delta) }
         }
         onSave(finalItem)
         if !isAdding {
+            print("🧪 AddEditWordSheet posting .openCounter for id=\(finalItem.id), count=\(finalItem.count)")
             NotificationCenter.default.post(name: .openCounter, object: finalItem.id)
         } // Pass the final item to the ContentView's save closure
         dismiss()
+    }
+
+    // MARK: - Daily Study Helpers (mirrors CounterView behavior)
+    private func dayKey(from date: Date) -> String {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
+
+    private func loadStudyHistory() -> [String: Int] {
+        if let data = studyHistoryJSON.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            return decoded
+        }
+        return [:]
+    }
+
+    private func saveStudyHistory(_ history: [String: Int]) {
+        // Keep last 400 days
+        let now = Date()
+        let cal = Calendar.current
+        let keys: [String] = (0..<400).compactMap { off in
+            guard let d = cal.date(byAdding: .day, value: -off, to: now) else { return nil }
+            return dayKey(from: d)
+        }
+        let trimmed = history.filter { keys.contains($0.key) }
+        if let data = try? JSONEncoder().encode(trimmed), let s = String(data: data, encoding: .utf8) {
+            studyHistoryJSON = s
+        }
+    }
+
+    private func appendStudyHistory(date: Date, increment: Int) {
+        var history = loadStudyHistory()
+        let key = dayKey(from: date)
+        let current = history[key] ?? 0
+        history[key] = max(0, current + increment)
+        saveStudyHistory(history)
+    }
+
+    private func updateTodayCount(by increment: Int) {
+        let iso = ISO8601DateFormatter()
+        let now = Date()
+        let storedDate = iso.date(from: todayDate) ?? now
+        let cal = Calendar.current
+        if !cal.isDate(storedDate, inSameDayAs: now) {
+            // New day: reset and set first increment
+            todayDate = iso.string(from: now)
+            todayCount = max(0, increment)
+            appendStudyHistory(date: now, increment: todayCount)
+        } else {
+            todayCount = max(0, todayCount + increment)
+            appendStudyHistory(date: now, increment: increment)
+        }
+    }
+}
+
+// MARK: - Mock Bottom Tab Bar
+struct BottomTabMock: View {
+    /// Action to perform when the center button is tapped
+    var centerAction: () -> Void = {}
+    /// Action for the floating '+' button (left of center)
+    var plusAction: () -> Void = {}
+    /// Action for the 'category' button (between play and home)
+    var categoryAction: () -> Void = {}
+    /// Action for the 'Daily Quiz' button (between play and home, top)
+    var dailyQuizAction: () -> Void = {}
+    /// Action for the floating 'home' button (right of center)
+    var homeAction: () -> Void = {}
+    var body: some View {
+        ZStack {
+            // Removed background bar to keep only floating circles
+
+            // Remove old inline label row to avoid duplicates
+
+            // Center floating button
+            Button(action: {
+                centerAction()
+            }) {
+                Circle()
+                    .fill(
+                        AngularGradient(gradient: Gradient(colors: [.pink, .purple, .blue, .pink]), center: .center)
+                    )
+                    .frame(width: 121, height: 121)
+                    .overlay(
+                        Circle().stroke(Color.white, lineWidth: 4)
+                    )
+                    .shadow(radius: 4)
+                    .overlay(
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 47)) // 20% larger than previous (39pt)
+                            .foregroundColor(.white)
+                            .shadow(color: Color.white.opacity(0.7), radius: 4)
+                    )
+            }
+            .offset(y: -38) // move up by 10px
+            .buttonStyle(PlainButtonStyle())
+
+            // Floating '+' button (smaller than play), positioned to the left
+            Button(action: {
+                plusAction()
+            }) {
+                Circle()
+                    .fill(
+                        AngularGradient(
+                            gradient: Gradient(colors: [
+                                Color.green,
+                                Color.mint,
+                                Color.cyan,
+                                Color.green
+                            ]),
+                            center: .center
+                        )
+                    )
+                    .frame(width: 78, height: 78)
+                    .overlay(
+                        // Subtle glossy rim
+                        Circle().stroke(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.95), Color.white.opacity(0.2)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 3
+                        )
+                    )
+                    // Neon glow
+                    .shadow(color: Color.cyan.opacity(0.5), radius: 8, x: 0, y: 3)
+                    .shadow(color: Color.green.opacity(0.35), radius: 12, x: 0, y: 6)
+                    .overlay(
+                        Image(systemName: "plus")
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundColor(.white)
+                            .shadow(color: Color.white.opacity(0.6), radius: 2)
+                    )
+            }
+            .offset(x: -110, y: -30)
+            .buttonStyle(PlainButtonStyle())
+
+            // Floating 'category' button (between play and home)
+            Button(action: {
+                categoryAction()
+            }) {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.indigo, Color.purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 40, height: 40)
+                    .overlay(
+                        Circle().stroke(Color.white, lineWidth: 2)
+                    )
+                    // Glow effect
+                    .shadow(color: Color.purple.opacity(0.4), radius: 10, x: 0, y: 2)
+                    .shadow(color: Color.indigo.opacity(0.3), radius: 12, x: 0, y: 6)
+                    .overlay(
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                            .shadow(color: Color.white.opacity(0.5), radius: 1)
+                    )
+            }
+            .offset(x: 77, y: 10)
+            .buttonStyle(PlainButtonStyle())
+
+            // NEW: Floating 'Daily Quiz' button (between play and home, top)
+            Button(action: {
+                dailyQuizAction()
+            }) {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.pink, Color.blue],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 46, height: 46)
+                    .overlay(
+                        Circle().stroke(Color.white, lineWidth: 2)
+                    )
+                    .shadow(color: Color.blue.opacity(0.45), radius: 10, x: 0, y: 2)
+                    .shadow(color: Color.pink.opacity(0.35), radius: 12, x: 0, y: 6)
+                    .overlay(
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                            .shadow(color: Color.white.opacity(0.5), radius: 1)
+                    )
+            }
+            .offset(x: 80, y: -80)
+            .buttonStyle(PlainButtonStyle())
+
+            // Floating 'home' button (right of center)
+            Button(action: {
+                homeAction()
+            }) {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.orange, Color.yellow],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 54, height: 54) // 20% smaller than 68
+                    .overlay(
+                        Circle().stroke(Color.white, lineWidth: 3)
+                    )
+                    // Glow effect
+                    .shadow(color: Color.orange.opacity(0.55), radius: 10, x: 0, y: 2)
+                    .shadow(color: Color.yellow.opacity(0.45), radius: 14, x: 0, y: 6)
+                    .overlay(
+                        Image(systemName: "house")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(.white)
+                            .shadow(color: Color.white.opacity(0.5), radius: 1)
+                    )
+            }
+            .offset(x: 110, y: -34)
+            .buttonStyle(PlainButtonStyle())
+        }
     }
 }
 
@@ -881,8 +1494,6 @@ struct ContentView_Previews: PreviewProvider {
         ContentView()
     }
 }
-import SwiftUI
-import AudioToolbox // For tap sound
 
 
 // MARK: - Share Sheet Helper

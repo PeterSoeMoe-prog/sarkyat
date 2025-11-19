@@ -7,12 +7,14 @@ struct Thai_Vocab_TrainerApp: App {
     @State private var items: [VocabularyEntry] = []
 
     init() {
-        copyCSVToDocumentsIfNeeded()
+        // copyCSVToDocumentsIfNeeded() // disabled legacy CSV copy
         _items = State(initialValue: loadSavedOrCSV())
         // Reset paused flag each launch so pause is temporary
         UserDefaults.standard.set(false, forKey: "sessionPaused")
         // Request notification permission and schedule daily reminder
         let center = UNUserNotificationCenter.current()
+        // Set delegate to handle notification taps
+        center.delegate = NotificationCenterDelegate.shared
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             if granted {
                 Self.scheduleDailyReminders()
@@ -86,38 +88,9 @@ struct Thai_Vocab_TrainerApp: App {
         return entries
     }
 
-    private func copyCSVToDocumentsIfNeeded() {
-        let fileManager = FileManager.default
-        let docsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let destURL = docsURL.appendingPathComponent("vocab.csv")
 
-        if !fileManager.fileExists(atPath: destURL.path) {
-            if let bundleURL = Bundle.main.url(forResource: "vocab", withExtension: "csv") {
-                try? fileManager.copyItem(at: bundleURL, to: destURL)
-            }
-        }
-    }
 
-    func saveItemsToCSV(_ items: [VocabularyEntry]) {
-        let fileManager = FileManager.default
-        let docsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let fileURL = docsURL.appendingPathComponent("vocab.csv")
 
-        let header = "thai,burmese,count,status\n"
-        let csvLines = items.map { item -> String in
-            let burmeseText = item.burmese?.replacingOccurrences(of: ",", with: " ") ?? ""
-            return "\(item.thai),\(burmeseText),\(item.count),\(item.status.rawValue)"
-        }
-
-        let csvString = header + csvLines.joined(separator: "\n")
-
-        do {
-            try csvString.write(to: fileURL, atomically: true, encoding: .utf8)
-            print("CSV saved successfully.")
-        } catch {
-            print("Failed to save CSV: \(error)")
-        }
-    }
 
     // MARK: - Notification Scheduling
     private static func scheduleDailyReminders() {

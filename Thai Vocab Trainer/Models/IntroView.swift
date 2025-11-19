@@ -14,6 +14,7 @@ struct IntroView: View {
     @AppStorage("remainingSeconds") private var remainingSeconds: Int = 0
     @AppStorage("remainingTimestamp") private var remainingTimestamp: Double = 0
     @AppStorage("sessionPaused") private var sessionPaused: Bool = false
+    @AppStorage("lastVocabID") private var storedLastVocabID: String = ""
     // Stats injected by the caller
     let totalCount: Int     // total repetitions logged
     let vocabCount: Int     // number of vocabulary entries
@@ -28,6 +29,8 @@ struct IntroView: View {
     @State private var showCategories = false
     @State private var showQuiz = false
     @State private var showDailyStats = false
+    @State private var resumeGlow = false
+    @ObservedObject private var notificationEngine = NotificationEngine.shared
     // Boost selection
     @AppStorage("boostType") private var boostTypeRaw: String = BoostType.mins.rawValue
     @AppStorage("boostValue") private var boostValue: Int = 0
@@ -37,6 +40,7 @@ struct IntroView: View {
     @State private var selectedCounts: Int = 5000
     @State private var selectedVocabs: Int = 10
     @State private var statPage: Int = 0
+    @State private var pendingAddWordFromIntro: Bool = false
 
     // Study-start date (you can expose this later in Settings)
     private let startDate: Date = Calendar.current.date(from: DateComponents(year: 2023, month: 6, day: 19)) ?? Date()
@@ -46,7 +50,26 @@ struct IntroView: View {
         (Calendar.current.dateComponents([.day], from: startDate, to: Date()).day ?? 0) + 1
     }
     @AppStorage("todayCount") private var todayCount: Int = 0
+    @AppStorage("studyHistoryJSON") private var studyHistoryJSON: String = ""
     private var averagePerDay: Int { max(1, totalCount / daysStudied) }
+    
+    // Calculate yesterday's count and percentage change
+    private var yesterdayCount: Int {
+        guard let data = studyHistoryJSON.data(using: .utf8),
+              let history = try? JSONDecoder().decode([String: Int].self, from: data) else {
+            return 0
+        }
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let key = formatter.string(from: yesterday)
+        return history[key] ?? 0
+    }
+    
+    private var percentageChange: Double {
+        guard yesterdayCount > 0 else { return 0 }
+        return ((Double(todayCount) - Double(yesterdayCount)) / Double(yesterdayCount)) * 100
+    }
 
     // ---------------------------------------------------------
     // MARK: Body
@@ -55,16 +78,17 @@ struct IntroView: View {
         NavigationStack {
         ZStack {
             appTheme.backgroundColor.ignoresSafeArea()
-
-            VStack(spacing: 40) {
+            VStack(spacing: 30) {
                 // -------------------------------------------------
-                // 1. Hero Header
+                // 1. Hero Header with notification bell
                 // -------------------------------------------------
                 VStack(spacing: 6) {
+                    // Centered title text; notification bell now lives in the nav bar trailing across the app
                     Text("Thai Vocab Trainer")
                         .font(.largeTitle.bold())
                         .foregroundColor(appTheme.primaryTextColor)
-
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
 
                     Text("Daily drill in minutes")
                         .font(.title3.weight(.light))
@@ -136,7 +160,11 @@ struct IntroView: View {
                             sessionPaused = false
                             navigateToContent = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                NotificationCenter.default.post(name: .nextVocabulary, object: nil)
+                                if let uuid = UUID(uuidString: storedLastVocabID) {
+                                    NotificationCenter.default.post(name: .openCounter, object: uuid)
+                                } else {
+                                    NotificationCenter.default.post(name: .nextVocabulary, object: nil)
+                                }
                             }
                         } label: {
                             Text("Resume")
@@ -149,8 +177,22 @@ struct IntroView: View {
                                 )
                                 .foregroundColor(.white)
                                 .cornerRadius(16)
-                                .shadow(radius: 6)
+                                // Pulsing glow animation
+                                .shadow(color: Color.blue.opacity(resumeGlow ? 0.7 : 0.25), radius: resumeGlow ? 16 : 6, x: 0, y: 0)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(LinearGradient(colors: [.purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 2)
+                                        .blur(radius: resumeGlow ? 8 : 2)
+                                        .opacity(resumeGlow ? 0.9 : 0.3)
+                                        .blendMode(.plusLighter)
+                                )
                                 .padding(.trailing, 16)
+                        }
+                        .onAppear {
+                            // Start pulsing immediately on IntroView
+                            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                                resumeGlow = true
+                            }
                         }
                     }
                 }
@@ -178,47 +220,66 @@ struct IntroView: View {
                     .font(.caption2)
                     .foregroundColor(appTheme.primaryTextColor)
                 }
-                TabView(selection: $statPage) {
-                     StatCard(title: "Total Vocab Counts", value: totalCount, big: false)
-                         .tag(0)
-                     StatCard(title: "Today Hits", value: todayCount, big: false)
-                         .tag(1)
-                     StatCard(title: "Days Total", value: daysStudied, big: false)
-                         .tag(2)
-                     StatCard(title: "Average Per Day", value: averagePerDay, big: false)
-                         .tag(3)
-                 }
-                 .frame(height: 130)
-                 .padding(.horizontal, 20)
-
-                 .tabViewStyle(.page(indexDisplayMode: .automatic))
-                 .indexViewStyle(.page(backgroundDisplayMode: .interactive))
+                
+                VStack {
+                    TabView(selection: $statPage) {
+                         StatCard(title: "Total Vocab Counts", value: totalCount, big: false)
+                             .tag(0)
+                         StatCard(title: "Today Hits", value: todayCount, big: false)
+                             .tag(1)
+                         StatCard(title: "Days Total", value: daysStudied, big: false)
+                             .tag(2)
+                         StatCard(title: "Average Per Day", value: averagePerDay, big: false)
+                             .tag(3)
+                     }
+                     .frame(height: 130)
+                     .padding(.horizontal, 20)
+                     .tabViewStyle(.page(indexDisplayMode: .automatic))
+                     .indexViewStyle(.page(backgroundDisplayMode: .interactive))
+                }
+                .offset(y: -4)
 
                 // -------------------------------------------------
                 // 4. Secondary Actions
                 // -------------------------------------------------
-                HStack(spacing: 20) {
+                HStack(spacing: 0) {
+                    actionButton(icon: "magnifyingglass.circle.fill", title: "Search")
+                        .frame(maxWidth: .infinity)
+                        .onTapGesture {
+                            playTapSound()
+                            navigateToContent = true // open list screen with search available there
+                            // After presenting ContentView, ask it to open the search box
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                NotificationCenter.default.post(name: Notification.Name("activateSearch"), object: nil)
+                            }
+                        }
                     actionButton(icon: "book.fill", title: "All Vocab")
+                        .frame(maxWidth: .infinity)
                         .onTapGesture {
                             playTapSound()
                             navigateToContent = true // open list screen
                         }
                     actionButton(icon: "square.grid.2x2.fill", title: "Categories")
+                        .frame(maxWidth: .infinity)
                         .onTapGesture {
                             playTapSound()
                             showCategories = true
                         }
-                    actionButton(icon: "bolt.fill", title: "Daily Quiz")
-                        .onTapGesture {
-                            playTapSound()
-                            showQuiz = true
-                        }
+                    Button(action: {
+                        playTapSound()
+                        showQuiz = true
+                    }) {
+                        actionButton(icon: "bolt.fill", title: "Daily Quiz")
+                    }
+                    .frame(maxWidth: .infinity)
                     actionButton(icon: "chart.bar.fill", title: "Daily Stats")
+                        .frame(maxWidth: .infinity)
                         .onTapGesture {
                             playTapSound()
                             showDailyStats = true
                         }
                     actionButton(icon: "gearshape.fill", title: "Settings")
+                        .frame(maxWidth: .infinity)
                         .onTapGesture {
                             playTapSound()
                             showSettings = true
@@ -229,17 +290,30 @@ struct IntroView: View {
                 .padding(.top, -15)
                 .padding(.bottom, 20)
             }
-            .padding(.top, 60)
+            .padding(.top, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        // Add a small spacer inset above the bottom safe area so the
+        // home indicator does not overlap the bottom action bar.
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 18)
         }
         .fullScreenCover(isPresented: $navigateToContent) {
             ContentView()
                 .preferredColorScheme(appTheme.colorScheme)
+                .onAppear {
+                    if pendingAddWordFromIntro {
+                        DispatchQueue.main.async {
+                            NotificationCenter.default.post(name: .addWord, object: nil)
+                            pendingAddWordFromIntro = false
+                        }
+                    }
+                }
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
         }
-        .sheet(isPresented: $showCategories) {
+        .navigationDestination(isPresented: $showCategories) {
             VocabCategoryView()
         }
         .sheet(isPresented: $showQuiz) {
@@ -247,6 +321,52 @@ struct IntroView: View {
         }
         .sheet(isPresented: $showDailyStats) {
             DailyStatView()
+        }
+        .withNotificationBell()
+        .onReceive(NotificationCenter.default.publisher(for: .addWord)) { _ in
+            if !navigateToContent {
+                pendingAddWordFromIntro = true
+                navigateToContent = true
+            }
+        }
+        // Deep-link from notification to open a specific vocab's CounterView
+        .onReceive(NotificationCenter.default.publisher(for: .openCounterFromNotification)) { note in
+            // Ensure content is shown; then forward the full payload (UUID or [String: Any])
+            if !navigateToContent { navigateToContent = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                NotificationCenter.default.post(name: .openCounter, object: note.object)
+            }
+        }
+        .onAppear {
+            // Request notification permission on first launch
+            notificationEngine.requestPermission { granted in
+                if granted {
+                    print("✅ Notification permission granted")
+                } else {
+                    print("⚠️ Notification permission denied")
+                }
+            }
+            
+            // DEBUG: Add sample notifications for testing badge
+            #if DEBUG
+            if notificationEngine.pendingNotifications.isEmpty {
+                notificationEngine.scheduleFailedQuizNotification(
+                    vocabID: UUID(),
+                    thaiWord: "สวัสดี",
+                    burmeseTranslation: "မင်္ဂလာပါ"
+                )
+                notificationEngine.scheduleFailedQuizNotification(
+                    vocabID: UUID(),
+                    thaiWord: "ขอบคุณ",
+                    burmeseTranslation: "ကျေးဇူးတင်ပါတယ်"
+                )
+                notificationEngine.scheduleFailedQuizNotification(
+                    vocabID: UUID(),
+                    thaiWord: "ไปไหน",
+                    burmeseTranslation: "ဘယ်သွားမလဲ"
+                )
+            }
+            #endif
         }
          // Automatically resume ongoing session if countdown still active
         .onAppear {
@@ -262,6 +382,7 @@ struct IntroView: View {
                 // Session actually finished while the app wasn’t running
                 remainingSeconds = 0
             }
+            // Note: do not consume deep link here; VocabularyListView will consume it on appear
         }
         // Close NavigationStack
         }
@@ -321,6 +442,7 @@ struct IntroView: View {
         let title: String
         let value: Int
         var big: Bool = false
+        var percentageChange: Double? = nil
 
         // Neon gradient colours
         private let neonColors: [Color] = [
@@ -418,14 +540,36 @@ struct DoughnutChart: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                ForEach(values.indices, id: \ .self) { i in
+                ForEach(values.indices, id: \.self) { i in
                     let start = angle(at: i)/360
                     let end = angle(at: i+1)/360
+                    // Preserve existing segment stroke colors/styles
+                    let strokeStyle: AnyShapeStyle = (
+                        i == 0
+                        ? AnyShapeStyle(Color.red)
+                        : (i == 1
+                           ? AnyShapeStyle(Color.yellow)
+                           : AnyShapeStyle(AngularGradient(gradient: Gradient(colors: [Color.green, Color.mint]), center: .center))
+                          )
+                    )
+                    // Choose a solid glow color approximating the stroke
+                    let glowColor: Color = (i == 0 ? .red : (i == 1 ? .yellow : .green))
                     Circle()
                         .trim(from: CGFloat(start), to: CGFloat(animate ? end : start))
                         .stroke(
-                            i == 0 ? AnyShapeStyle(Color.red) : (i == 1 ? AnyShapeStyle(Color.yellow) : AnyShapeStyle(AngularGradient(gradient: Gradient(colors: [Color.green, Color.mint]), center: .center))),
+                            strokeStyle,
                             style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt))
+                        // Soft outer glow per segment
+                        .shadow(color: glowColor.opacity(0.45), radius: 8, x: 0, y: 0)
+                        // Additional radiant blur to enhance glow
+                        .overlay(
+                            Circle()
+                                .trim(from: CGFloat(start), to: CGFloat(animate ? end : start))
+                                .stroke(glowColor.opacity(0.6), lineWidth: lineWidth)
+                                .blur(radius: 6)
+                                .opacity(0.7)
+                                .blendMode(.plusLighter)
+                        )
                         .animation(.easeOut(duration: 1.0).delay(Double(i) * 0.15), value: animate)
                         .rotationEffect(.degrees(-90))
                 }

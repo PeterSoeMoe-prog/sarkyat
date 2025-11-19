@@ -1,6 +1,6 @@
 import Foundation
 
-public enum VocabularyStatus: String, CaseIterable, Identifiable, Codable {
+public enum VocabularyStatus: String, CaseIterable, Identifiable, Codable, Sendable {
     case queue = "Queue"
     case drill = "Drill"
     case ready = "Ready"

@@ -13,6 +13,8 @@ struct MiniPlayerBarView: View {
     let previousAction: () -> Void
     let togglePlayPauseAction: () -> Void
     let nextAction: () -> Void
+    let repeatAllAction: () -> Void
+    let isRepeating: Bool
 
     var body: some View {
         VStack(spacing: 4) {
@@ -45,24 +47,49 @@ struct MiniPlayerBarView: View {
 
                 // Playback controls
                 
-                TTSControlsView(
-                    isPlaying: isPlaying,
-                    isPaused: isPaused,
-                    hasPrevious: hasPrevious,
-                    hasNext: hasNext,
-                    previousAction: previousAction,
-                    togglePlayPauseAction: togglePlayPauseAction,
-                    nextAction: nextAction
-                )
+                HStack(spacing: 28) {
+                    TTSControlsView(
+                        isPlaying: isPlaying,
+                        isPaused: isPaused,
+                        hasPrevious: hasPrevious,
+                        hasNext: hasNext,
+                        previousAction: previousAction,
+                        togglePlayPauseAction: togglePlayPauseAction,
+                        nextAction: nextAction
+                    )
+                    Button(action: repeatAllAction) {
+                        Image(systemName: isRepeating ? "repeat.circle.fill" : "repeat.circle")
+                            .font(.system(size: 34))
+                            .foregroundColor(isRepeating ? .blue : .gray)
+                            .accessibilityLabel("Repeat All")
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(.horizontal, 16)
 
-            // Progress bar along bottom
-            // Speed slider
-            HStack {
-                Image(systemName: "tortoise")
-                Slider(value: $rate, in: 0.3...1.0, step: 0.05)
-                Image(systemName: "hare")
+            // Speed buttons
+            HStack(spacing: 12) {
+                ForEach([0.3, 0.5, 0.8, 1.0], id: \.self) { val in
+                    Button {
+                        rate = val
+                        #if canImport(UIKit)
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        #endif
+                    } label: {
+                        Text(val.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", val) : String(format: "%.1f", val))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .frame(width: 32, height: 24)
+                            .foregroundColor(rate == val ? .white : .primary)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(rate == val ? Color.blue : Color(.secondarySystemBackground))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Set speed to \(val)")
+                }
             }
             .padding(.horizontal, 16)
 
@@ -88,7 +115,9 @@ struct MiniPlayerBarView_Previews: PreviewProvider {
             hasNext: true,
             previousAction: {},
             togglePlayPauseAction: {},
-            nextAction: {}
+            nextAction: {},
+            repeatAllAction: {},
+            isRepeating: false
         )
     }
 }

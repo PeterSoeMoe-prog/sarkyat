@@ -23,6 +23,7 @@ struct CategoryListView: View {
     @State private var currentIndex = 0
     @AppStorage("ttsRate") private var ttsRate: Double = 0.5
     @State private var progress: Double = 0.0
+    @State private var isRepeating = false
     @Environment(\.dismiss) private var dismiss
     private let synthesizer = AVSpeechSynthesizer()
     @StateObject private var speechDelegate = SpeechDelegate()
@@ -33,72 +34,6 @@ struct CategoryListView: View {
     
     var body: some View {
         List {
-            // (Removed in-list playback controls; floating mini-player handles UI)
-            Section {
-                VStack(spacing: 12) {
-                    // Current Word
-                    Text(currentIndex < filteredItems.count ? filteredItems[currentIndex].thai : "")
-                        .font(.title2)
-                        .fontWeight(.medium)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 4)
-                    
-                    // Progress Text
-                    Text("\(currentIndex + 1) of \(filteredItems.count)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    // Gap progress indicator
-                    if isPlaying {
-                        ProgressView(value: progress)
-                            .progressViewStyle(.linear)
-                            .tint(.blue)
-                    }
-                    
-                    // Controls
-                    TTSControlsView(
-                        isPlaying: isPlaying,
-                        isPaused: isPaused,
-                        hasPrevious: currentIndex > 0,
-                        hasNext: currentIndex < filteredItems.count - 1,
-                        previousAction: previousWord,
-                        togglePlayPauseAction: togglePlayPause,
-                        nextAction: nextWord
-                    )
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel("Playback controls")
-                    .accessibilityHint("Previous, play or pause, next")
-                }
-                .padding(.vertical, 8)
-            }
-            .sheet(item: $editingItem) { item in
-                NavigationView {
-                    // Create a local copy to prevent potential race conditions
-                    let safeItems = items
-                    CounterView(
-                        item: Binding(
-                            get: { item },
-                            set: { newValue in
-                                DispatchQueue.main.async {
-                                    if let index = items.firstIndex(where: { $0.id == newValue.id }) {
-                                        items[index] = newValue
-                                    }
-                                }
-                            }
-                        ),
-                        allItems: .constant(safeItems),
-                        totalVocabCount: safeItems.reduce(0) { $0 + $1.count }
-                    )
-                    .transition(.opacity)
-                    .onDisappear {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            editingItem = nil
-                        }
-                    }
-                }
-                .animation(.easeInOut, value: editingItem)
-            }
-            
             // Words List
             Section {
                 ForEach(filteredItems.indices, id: \.self) { index in
@@ -195,7 +130,7 @@ struct CategoryListView: View {
                 }
             }
         }
-        .navigationTitle("\(category) (\(filteredItems.count))")
+        .navigationTitle("\(category) (\(filteredItems.filter { $0.status == .queue || $0.status == .drill }.count)/\(filteredItems.count))")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -242,7 +177,9 @@ struct CategoryListView: View {
                     hasNext: currentIndex < filteredItems.count - 1,
                     previousAction: previousWord,
                     togglePlayPauseAction: togglePlayPause,
-                    nextAction: nextWord
+                    nextAction: nextWord,
+                    repeatAllAction: { isRepeating.toggle() },
+                    isRepeating: isRepeating
                 )
             }
         }
@@ -305,7 +242,7 @@ struct CategoryListView: View {
     }
     
 
-        private func speakCurrentWord() {
+    private func speakCurrentWord() {
         guard currentIndex < filteredItems.count else {
             stopPlayback()
             return
@@ -319,7 +256,7 @@ struct CategoryListView: View {
         synthesizer.stopSpeaking(at: .immediate)
         synthesizer.speak(utterance)
         
-            // speech completion handled by delegate
+        // speech completion handled by delegate
     }
     
     // MARK: - Delegate helpers
@@ -341,6 +278,9 @@ struct CategoryListView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 speakCurrentWord()
             }
+        } else if isRepeating && !filteredItems.isEmpty {
+            currentIndex = 0
+            speakCurrentWord()
         } else {
             stopPlayback()
         }

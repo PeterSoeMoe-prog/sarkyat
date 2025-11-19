@@ -5,6 +5,32 @@ import ConfettiSwiftUI
 #endif
 import AVFoundation
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
+
+// Shared formatter cache to avoid repeated allocations on hot paths
+fileprivate enum Formatters {
+    static let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        return f
+    }()
+    static let day: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+}
+
+// Measure Thai text height to adapt the tappable area for 1-line vs 2-line cases
+private struct ThaiTextHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
 
 extension Notification.Name {
     static let nextVocabulary = Notification.Name("nextVocabulary")
@@ -18,6 +44,8 @@ struct CounterView: View {
     @Environment(\.dismiss) private var dismiss
     let totalVocabCount: Int
     @State private var recentVocabs: [VocabularyEntry] = []
+    // Flag to toggle Settings sheet
+    @State private var showSettings: Bool = false
 
     @AppStorage("boostType") private var boostTypeRaw: String = BoostType.mins.rawValue
     @AppStorage("boostValue") private var boostValue: Int = 0
@@ -34,7 +62,25 @@ struct CounterView: View {
     @State private var selectedIncrement: Int = 5 // remembers per vocab
     private func incrementKey(for id: UUID) -> String { "increment_\(id.uuidString)" }
     @State private var isIncrementWheelActive: Bool = false // Start inactive (20% visible until tapped)
-    let increments = [100, 5, 2, 1]
+    let increments = [1, 2, 5]
+    // Manage auto-speak scheduling so we can cancel it on user taps
+    @State private var autoSpeakWork: DispatchWorkItem? = nil
+    // Measured Thai text height to adapt the tap zone for 1-line content
+    @State private var thaiTextHeight: CGFloat = 0
+    // Fixed Thai area height to keep Burmese in a constant position while Thai baseline stays aligned
+    private let thaiAreaHeight: CGFloat = 100
+
+    // Cycle through increments on each tap
+    private func cycleIncrement() {
+        if let index = increments.firstIndex(of: selectedIncrement) {
+            let nextIndex = (index + 1) % increments.count
+            selectedIncrement = increments[nextIndex]
+            updateInactivityThreshold()
+            SoundManager.playSound(1104)
+            SoundManager.playVibration()
+            UserDefaults.standard.set(selectedIncrement, forKey: incrementKey(for: item.id))
+        }
+    }
     
     // Determine default increment based on Thai text length
     private func defaultIncrement(for text: String) -> Int {
@@ -53,10 +99,37 @@ struct CounterView: View {
     
     
     @State private var bigCircleScale: CGFloat = 1.0
+    @State private var bigCircleGlow: Bool = false
     @StateObject private var sessionTimer = SessionTimer()
+    // GIF playback control
+    @State private var isGifPlaying: Bool = false
+    @State private var lastGifActivity: Date = Date()
+    private let gifInactivityInterval: TimeInterval = 10
     @State private var sessionCount: Int = 0
+    @State private var sessionTimerVisible: Bool = false
     @AppStorage("todayCount") private var todayCount: Int = 0
-    @AppStorage("todayDate") private var todayDate: String = ISO8601DateFormatter().string(from: Date())
+    @AppStorage("studyHistoryJSON") private var studyHistoryJSON: String = ""
+    // Leave default empty to avoid constructing a formatter at property init
+    @AppStorage("todayDate") private var todayDate: String = ""
+
+    // Comparison vs previous day for the bottom Stat card
+    private var yesterdayCount: Int {
+        let history = loadStudyHistory()
+        let prev = Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+        return history[dayKey(from: prev)] ?? 0
+    }
+    private var statPercentString: String {
+        let prev = yesterdayCount
+        let today = todayCount
+        if prev == 0 { return today > 0 ? "+100%" : "0%" }
+        let pct = Int(round((Double(today - prev) / Double(prev)) * 100))
+        return String(format: "%+d%%", pct)
+    }
+    private var statTitle: String {
+        if statPercentString.hasPrefix("+") { return "More than Prev Day" }
+        if statPercentString.hasPrefix("-") { return "Less than Prev Day" }
+        return "Same as Prev Day"
+    }
 
     @State private var smallCircleScale: CGFloat = 1.0
     @State private var bigCircleRotation: Double = 0
@@ -93,13 +166,17 @@ struct CounterView: View {
     @State private var selectedStatusIndex: Int = 1 // Default to 🔥
     
     @State private var showMenu: Bool = false
+    // Daily Quiz sheet flag
+    @State private var showQuiz: Bool = false
     @State private var showCongrats: Bool = false
+    @State private var trophyScale: CGFloat = 1.0
+    @State private var nextGlowPulse: Bool = false
 
     @State private var menuOffset: CGSize = CGSize(width: 0, height: 0)
     @State private var dragStartLocation: CGSize = .zero
     
     // Volume control state
-    @State private var volumeLevel: Int = 1 // 0: muted, 1: low (default), 2: medium, 3: high
+    @State private var volumeLevel: Int = 2 // 0: muted, 1: low, 2: medium (default), 3: high
     @State private var lastTTSTriggerSecond: Int = -1 // track last second when TTS fired
 
 
@@ -107,6 +184,15 @@ struct CounterView: View {
         let minutes = sessionTimer.sessionDurationSeconds / 60
         let seconds = sessionTimer.sessionDurationSeconds % 60 // <-- Change this line
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    // 70% screen width for popup buttons
+    private var buttonWidth: CGFloat {
+        #if os(iOS)
+        return UIScreen.main.bounds.width * 0.7
+        #else
+        return 320
+        #endif
     }
   
 
@@ -145,8 +231,9 @@ struct CounterView: View {
         _allItems = allItems
         self.totalVocabCount = totalVocabCount
         
-        // Initialize selected increment based on text length
-        _selectedIncrement = State(initialValue: defaultIncrement(for: item.wrappedValue.thai))
+        // Initialize selected increment: check stored value first, then default based on text length
+        let storedIncrement = UserDefaults.standard.integer(forKey: "increment_\(item.wrappedValue.id.uuidString)")
+        _selectedIncrement = State(initialValue: storedIncrement != 0 ? storedIncrement : defaultIncrement(for: item.wrappedValue.thai))
         
         // Initialize boost type from stored value or default to .mins
         self._boostType = State(initialValue: BoostType(rawValue: boostTypeRaw) ?? .mins)
@@ -177,61 +264,178 @@ struct CounterView: View {
         
         // Set up speech synthesizer
         synthesizer.delegate = speechDelegate
+        // Ensure audio session is ready for immediate TTS playback
+        configureAudioSession()
     }
     
+    // Helper to create small lettered circles with same design as big circle
+    private func letterCircle(_ letter: String, size: CGFloat, offset: CGSize, colors: [Color]? = nil, useLinear: Bool = false, action: (() -> Void)? = nil) -> some View {
+        let gradientColors = colors ?? [.pink, .purple, .blue, .pink]
+        let fillStyle = useLinear ? AnyShapeStyle(LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)) : AnyShapeStyle(AngularGradient(gradient: Gradient(colors: gradientColors), center: .center))
+        return Circle()
+            .stroke(Color.white, lineWidth: 4)
+            .background(
+                Circle().fill(fillStyle)
+            )
+            .shadow(color: .pink.opacity(0.6), radius: 10)
+            .frame(width: size, height: size)
+            .overlay(
+                Text(letter)
+                    .font(.system(size: size * 0.4, weight: .heavy, design: .rounded))
+                    .italic()
+                    .foregroundColor(.white)
+            )
+            .offset(offset)
+            .onTapGesture {
+                SoundManager.playSound(1104)
+                SoundManager.playVibration()
+                action?()
+            }
+    }
+
+    // MARK: - Category Count Helpers (to keep type-checker happy)
+    private func countTotal(in category: String) -> Int {
+        allItems.filter { $0.category == category }.count
+    }
+
+    private func countQueueDrill(in category: String) -> Int {
+        allItems.filter { $0.category == category && ($0.status == .queue || $0.status == .drill) }.count
+    }
+
+    private func categoryHeaderText(_ category: String) -> String {
+        let qd = countQueueDrill(in: category)
+        let total = countTotal(in: category)
+        return "\(category) (\(qd)/\(total))"
+    }
+
+    // MARK: - Card Component
+    private struct StatCard<Content: View>: View {
+        let title: String
+        let titleColor: Color
+        let content: Content
+        init(title: String, titleColor: Color = .white, @ViewBuilder content: () -> Content) {
+            self.title = title
+            self.titleColor = titleColor
+            self.content = content()
+        }
+        var body: some View {
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: 16, weight: .thin))
+                    .foregroundColor(titleColor)
+                content
+            }
+            .padding(12)
+            .frame(width: 220, height: 120)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            )
+        }
+    }
 
     var body: some View {
         NavigationStack {
+            GeometryReader { (geo: GeometryProxy) in
             // MARK: - Root ZStack for Fixed Positioning
             ZStack {
                 // Background color
                 appTheme.backgroundColor.ignoresSafeArea()
                 
+                // Category header overlay (non-interfering with Thai tap area)
+                if let category = item.category, !category.isEmpty {
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            let cat = category
+                            // Dismiss CounterView sheet first, then push full-page category from root stack
+                            dismiss()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                NotificationCenter.default.post(name: .openCategoryList, object: cat)
+                            }
+                        }) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(categoryHeaderText(category))
+                                    .font(.system(size: 17, weight: .regular))
+                                    .foregroundColor(appTheme.primaryTextColor)
+                            }
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        Spacer()
+                        Button("Edit") {
+                            // Dismiss CounterView first, then present edit sheet to avoid sheet-on-sheet presentation issues
+                            let targetID = item.id
+                            dismiss()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                NotificationCenter.default.post(name: .editVocabularyEntry, object: targetID)
+                            }
+                        }
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundColor(.cyan)
+                    }
+                    .padding(.horizontal, 24)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, geo.safeAreaInsets.top + 10)
+                    .zIndex(1) // Below congratulations overlay (zIndex 10)
+                }
+
                 // MARK: - 1. Thai Vocab & Burmese Text Block
                 VStack(spacing: 8) {
-                    Text(item.thai)
-                        .font(.system(size: 36, weight: .regular))
-                        .foregroundColor(appTheme.primaryTextColor)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.5)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .onTapGesture {
-                            speakThai(item.thai)
-                        }
-                        .contextMenu {
-                            Button("Ask this to ChatGPT") {
-                                openChatGPT(for: item.thai)
-                            }
-                            Button("Translate in Google Translate") {
-                                openGoogleTranslate(for: item.thai)
-                            }
-                        }
-
                     Button(action: {
-                        SoundManager.playSound(1104)
-                        SoundManager.playVibration()
-                        withAnimation {
-                            volumeLevel = (volumeLevel + 1) % 4
-                        }
+                        // Cancel any pending auto-speak to avoid racing
+                        autoSpeakWork?.cancel()
+                        speakThaiNow(item.thai)
                     }) {
-                        Text(volumeLevel == 0 ? "🔇" :
-                             volumeLevel == 1 ? "🔈" :
-                             volumeLevel == 2 ? "🔉" : "🔊")
-                            .font(.system(size: 28))
+                        // Label defines the actual tappable area for a Button
+                        VStack(spacing: 0) {
+                            Text(item.thai)
+                                .font(.system(size: 36, weight: .regular))
+                                .foregroundColor(appTheme.primaryTextColor)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.5)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.vertical, 6)
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear.preference(key: ThaiTextHeightKey.self, value: geo.size.height)
+                                    }
+                                )
+                        }
+                        .frame(maxWidth: .infinity, alignment: .bottom)
+                        .frame(width: nil, height: thaiAreaHeight, alignment: .bottom)
+                        .contentShape(Rectangle())
+                        .background(Color.white.opacity(0.001)) // ensure whole frame is hittable
                     }
                     .buttonStyle(PlainButtonStyle())
-
-                    if let burmese = item.burmese {
-                        Text(burmese)
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundColor(.yellow)
+                    .zIndex(1000)
+                    .onPreferenceChange(ThaiTextHeightKey.self) { h in
+                        thaiTextHeight = h
                     }
+                    // Removed hidden zero-sized volume toggle button to prevent hit-testing conflicts
                 }
                 .padding(.horizontal, 20) // Add horizontal padding for text
                 .multilineTextAlignment(.center) // Center align if it wraps
-                .offset(y: -330) // Position near the top
+                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity)
+                .zIndex(10)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.top, geo.safeAreaInsets.top + 32)
 
-                // MARK: - 2. Total Counts Text Block
+                // Burmese line anchored independently below the fixed Thai area
+                if let burmese = item.burmese, !burmese.isEmpty {
+                    Text(burmese)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.yellow)
+                        .padding(.horizontal, 20)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .padding(.top, geo.safeAreaInsets.top + 32 + thaiAreaHeight + 10) // keep a 10pt gap under Thai area
+                        .allowsHitTesting(false)
+                        .zIndex(9)
+                }
+
+                // MARK: - 2. Total Counts Number (labels removed)
                 VStack(spacing: 0) {
                     ZStack(alignment: .topTrailing) {
                     // Ensure counts block is always centered
@@ -249,12 +453,6 @@ struct CounterView: View {
                                             .italic()
                                     )
                             )
-                            .shadow(color: .white, radius: 0, x: 1, y: 0)
-                            .shadow(color: .white, radius: 0, x: -1, y: 0)
-                            .shadow(color: .white, radius: 0, x: 0, y: 1)
-                            .shadow(color: .white, radius: 0, x: 0, y: -1)
-                            // Drop shadow for depth
-                            .shadow(color: .black.opacity(0.45), radius: 6, x: 4, y: 4)
                         
                         // Hits Now superscript
                         Text("+\(sessionCount)")
@@ -263,21 +461,27 @@ struct CounterView: View {
                             .offset(x: 40, y: -6)
                                         }
 
-                    Text("counts")
-                        .font(.system(size: 12, weight: .thin))
-                        .foregroundColor(appTheme.primaryTextColor.opacity(0.7))
-                        .offset(y: -3)
-                    // Today hits label
-                    Text("today \(todayCount)")
-                        .font(.system(size: 12, weight: .thin))
-                        .foregroundColor(appTheme.primaryTextColor.opacity(0.7))
-                        .offset(y: -3)
                 }
                 .frame(maxWidth: .infinity)
                 // Positioned relative to overall layout; adjust vertical offset if needed
-                .offset(y: -200) // keep vertical positioning
+                .offset(y: -190) // moved up by 10pt
+                .allowsHitTesting(false)
 
                 // MARK: - 3. Big Circle & Pickers
+
+                // Fun dog GIF overlay (for testing)
+                AnimatedGifView(name: "dog", isPlaying: $isGifPlaying)
+                     .frame(width: 40, height: 40)
+                     .scaleEffect(x: -0.33, y: 0.33)
+                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                     .allowsHitTesting(false)
+                     .zIndex(1)
+                     .offset(y: 35) // moved up by 20pt
+                     .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+                        if isGifPlaying && Date().timeIntervalSince(lastGifActivity) > gifInactivityInterval {
+                            isGifPlaying = false
+                        }
+                     }
                 ZStack {
                     Circle()
                         .stroke(Color.white, lineWidth: 6)
@@ -286,35 +490,38 @@ struct CounterView: View {
                                 AngularGradient(gradient: Gradient(colors: [.pink, .purple, .blue, .pink]), center: .center)
                             )
                         )
-                        .shadow(color: .pink.opacity(0.6), radius: 15)
+                        .shadow(color: bigCircleGlow ? .pink.opacity(0.6) : .clear, radius: bigCircleGlow ? 15 : 0)
                         .frame(width: 350, height: 350)
                         .scaleEffect(bigCircleScale)
                         .rotationEffect(.degrees(bigCircleRotation))
-                        .overlay(
-                            Text("↑")
-                                .font(.system(size: 180))
-                                .foregroundColor(.white)
-                        )
+                        
                         .onTapGesture {
                             // Register activity with session timer
                             sessionTimer.registerActivity()
                             
                             // Play standard click sound
                             SoundManager.playSound(1104)
-                            SoundManager.playVibration()
+                             SoundManager.playVibration()
+                             // Start GIF
+                             isGifPlaying = true
+                             lastGifActivity = Date()
                             
                             let oldTotalCount = item.count
 
-                            // Animations for the big circle
+                            // Animations for the big circle (no scale, just rotation, color, and glow)
                             withAnimation(.easeOut(duration: 0.15)) {
-                                bigCircleScale = 1.1
                                 bigCircleColor = .green
+                                bigCircleGlow = true
                             }
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                                 withAnimation(.easeInOut(duration: 0.3)) {
-                                    bigCircleScale = 1.0
                                     bigCircleRotation += 360
                                     bigCircleColor = .blue
+                                }
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                                withAnimation(.easeOut(duration: 0.8)) {
+                                    bigCircleGlow = false
                                 }
                             }
                             
@@ -335,6 +542,8 @@ struct CounterView: View {
                             }
 
                             // Animations for session count text
+                            // Show session timer on first interaction
+                            sessionTimerVisible = true
                             withAnimation(.easeOut(duration: 0.2)) {
                                 sessionTextScale = 1.3
                                 sessionTextOpacity = 1.0
@@ -355,6 +564,7 @@ struct CounterView: View {
                             
                             previousCount = item.count
                         }
+                        .offset(y: -10) // Move big circle up by 10pt
 
                     // Status Picker (positioned relative to the ZStack, not the circle)
                     Button(action: {
@@ -387,54 +597,137 @@ struct CounterView: View {
                     .buttonStyle(PlainButtonStyle())
                     .frame(width: 110, height: 216)
                     .clipped()
-                    .offset(x: -145, y: -200) // Adjusted offset for new ZStack
+                    .offset(x: -145, y: -210) // Adjusted offset for new ZStack (moved up 10pt)
                     
-                    // Increment Picker with tap-to-activate
-                    ZStack {
-                        // Background tap area (only active when wheel is faded)
-                        if !isIncrementWheelActive {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    isIncrementWheelActive = true
-                                }
-                        }
-                        
-                        // Picker with fade effect
-                        Picker("", selection: $selectedIncrement) {
-                            ForEach(increments, id: \.self) { value in
-                                Text("+\(value)")
-                                    .tag(value)
+                    // Increment Toggle Button with circular gradient UI
+                    Button(action: {
+                        cycleIncrement()
+                    }) {
+                        ZStack {
+                            // Background gradient mimicking the deduct (small) circle
+                            Circle()
+                                .fill(
+                                    AngularGradient(gradient: Gradient(colors: [.yellow, .orange, .red, .yellow]), center: .center)
+                                )
+                            Circle()
+                                .stroke(Color.white, lineWidth: 6)
+                                .shadow(color: .pink.opacity(0.6), radius: 15)
+                            ZStack {
+                                Text("\(selectedIncrement)")
+                                    .font(.system(size: 40, weight: .heavy, design: .rounded)).italic()
+                                    .foregroundColor(.white)
+                                Text("+")
+                                    .font(.system(size: 14, weight: .heavy, design: .rounded)).italic()
+                                    .foregroundColor(.white)
+                                    .offset(x: -14, y: -14)
                             }
-                        }
-                        .pickerStyle(.wheel)
-                        .frame(width: 110, height: 216)
-                        .clipped()
-                        .opacity(isIncrementWheelActive ? 1.0 : 0.2)
-                        .animation(.easeInOut, value: isIncrementWheelActive)
-                        .onChange(of: selectedIncrement) { _, newVal in
-                            isIncrementWheelActive = false
-                            updateInactivityThreshold()
-                            SoundManager.playSound(1104)
-                            SoundManager.playVibration()
-                            UserDefaults.standard.set(newVal, forKey: incrementKey(for: item.id))
-                        }
+                            .shadow(color: .pink.opacity(0.9), radius: 25)
+                            .shadow(color: .pink.opacity(0.5), radius: 40)
+                         }
+                         .frame(width: 65, height: 65)
                     }
-                    .frame(width: 110, height: 216)
-                    .offset(x: 150, y: -200) // Aligned within parent
+                    .buttonStyle(PlainButtonStyle())
+                    .frame(width: 65, height: 65)
+                     .offset(x: 150, y: -207) // Aligned within parent (moved up 10pt)
+                     
+                     // Speaker toggle (moved from vocab block)
+                     Button(action: {
+                         SoundManager.playSound(1104)
+                         SoundManager.playVibration()
+                         withAnimation {
+                             volumeLevel = (volumeLevel + 1) % 4
+                         }
+                     }) {
+                         ZStack {
+                             Circle()
+                                 .fill(Color.white)
+                             Circle()
+                                 .stroke(Color.white, lineWidth: 4)
+                             Text(volumeLevel == 0 ? "🔇" :
+                                  volumeLevel == 1 ? "🔈" :
+                                  volumeLevel == 2 ? "🔉" : "🔊")
+                                 .font(.system(size: 20))
+                         }
+                     }
+                     .buttonStyle(PlainButtonStyle())
+                     .frame(width: 35, height: 35)
+                    .shadow(color: .pink.opacity(0.6), radius: 15)
+                    // Positioned just below and to the right of the +5 picker
+                    .offset(x: 170, y: -150)
                 }
-                .offset(y: 30) // Position big circle block (unchanged)
+                .offset(y: 45) // moved down by another 10pt
+                // MARK: - 3a. Lettered Circles (G, C, T) - arranged along circle arc
+                Group {
+                    letterCircle("G", size: 36, offset: CGSize(width: -164, height: 177), colors: [.green, .mint], useLinear: true) {
+                        openGoogleImages(for: item.thai)
+                    }
+                    letterCircle("C", size: 48, offset: CGSize(width: -127, height: 212), colors: [.cyan, .teal]) {
+                        openChatGPT(for: item.thai)
+                    }
+                    letterCircle("T", size: 40, offset: CGSize(width: -77, height: 233), colors: [.purple, .pink], useLinear: true) {
+                        openGoogleTranslate(for: item.thai)
+                    }
+                }
+                .offset(x: 10, y: 20) // moved up by 30pt (was 50)
+
+                .offset(y: -10) // moved up by 25pt (was 15)
+
+                // MARK: - 3b. Quick Action Logos (Google / ChatGPT / Translate)
+                VStack(spacing: -6) {
+                    // Google Search
+                    Button(action: {
+                        openGoogleSearch(for: item.thai)
+                    }) {
+                        Image("google")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 42, height: 42)
+                            .clipShape(Circle())
+                            .shadow(color: .white.opacity(0.6), radius: 6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    // ChatGPT
+                    Button(action: {
+                        openChatGPT(for: item.thai)
+                    }) {
+                        Image("chatgpt")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 42, height: 42)
+                            .clipShape(Circle())
+                            .shadow(color: .white.opacity(0.6), radius: 6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    // Google Translate
+                    Button(action: {
+                        openGoogleTranslate(for: item.thai)
+                    }) {
+                        Image("translate")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 42, height: 42)
+                            .clipShape(Circle())
+                            .shadow(color: .white.opacity(0.6), radius: 6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .padding(.leading, 24)
+                .padding(.bottom, 110)
+                .zIndex(5) // ensure logos stay on top
 
                 // MARK: - 4. Small Circle with Section Count Text
                 ZStack {
                     Circle()
-                        .stroke(Color.white, lineWidth: 5)
+                        .stroke(Color.white, lineWidth: 6)
                         .background(
                             Circle().fill(
                                 AngularGradient(gradient: Gradient(colors: [.yellow, .orange, .red, .yellow]), center: .center)
                             )
                         )
-                        .shadow(color: .orange.opacity(0.6), radius: 10)
+                        .shadow(color: .pink.opacity(0.6), radius: 15)
                         .frame(width: 100, height: 100)
                         .scaleEffect(smallCircleScale)
                         .rotationEffect(.degrees(smallCircleRotation))
@@ -488,10 +781,11 @@ struct CounterView: View {
                             
                             previousCount = item.count
                         }
+                        .offset(y: 10) // Move small circle down by 10pt
 
                    
                 }
-                .offset(x: 120, y: 155) // Move small circle 400px further down
+                .offset(x: 120, y: 185) // moved up 10pt from original 195
 
                 // MARK: - Congratulations Overlay
                 if showCongrats {
@@ -499,9 +793,42 @@ struct CounterView: View {
                         .ignoresSafeArea()
                         .transition(.opacity)
                         .zIndex(10)
-                    VStack(spacing: 30) {
+                        .onAppear {
+                            print("🎉 DEBUG: Congratulations popup appeared!")
+                            
+                            // Add delay before playing cheer sound for better timing
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                #if os(iOS)
+                                // Override audio session to ensure sound plays even in silent mode
+                                do {
+                                    let audioSession = AVAudioSession.sharedInstance()
+                                    try audioSession.setCategory(.playback, options: [.mixWithOthers])
+                                    try audioSession.setActive(true)
+                                    print("🔊 DEBUG: Audio session activated")
+                                    
+                                    // Play delayed cheer sound in popup (sound2)
+                                    AudioServicesPlaySystemSoundWithCompletion(1027) {
+                                        print("🎵 DEBUG: System sound 1027 completed")
+                                    }
+                                    
+                                    // Heavy vibration
+                                    let generator = UIImpactFeedbackGenerator(style: .heavy)
+                                    generator.prepare()
+                                    generator.impactOccurred()
+                                    print("📳 DEBUG: Heavy vibration triggered")
+                                    
+                                } catch {
+                                    print("❌ DEBUG: Audio session error: \(error)")
+                                    // Fallback to basic system sound
+                                    AudioServicesPlaySystemSound(1027)
+                                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                                }
+                                #endif
+                            }
+                        }
+                    VStack(spacing: 15) {
                         HStack {
-                            Spacer()
+                            Spacer(minLength: 10)
                             Button(action: {
                                 showCongrats = false
                             }) {
@@ -511,118 +838,261 @@ struct CounterView: View {
                             }
                             .padding(.trailing, 20)
                         }
-                        Text("🎉 Congratulations!")
-                            .font(.system(size: 40, weight: .heavy))
-                            .foregroundColor(.yellow)
-                            .shadow(color: .orange, radius: 4)
-                        HStack(spacing: 20) {
-                            Button(action: {
-                                // Intentionally left blank – functionality removed per user request.
-                            }) {
-                                Text("10X Play")
-                                    .font(.system(size: 24, weight: .bold))
-                                    .padding(.horizontal, 30)
-                                    .padding(.vertical, 12)
-                                    .background(
-                                        LinearGradient(colors: [.green, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                    )
-                                    .foregroundColor(.white)
-                                    .cornerRadius(14)
-                                    .shadow(radius: 8)
+                        // Trophy image hero (falls back to SF Symbol if asset missing)
+                        #if canImport(UIKit)
+                        if let img = UIImage(named: "trophy") {
+                            Image(uiImage: img)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 286, height: 286)
+                                .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 10)
+                                // Warm glow
+                                .shadow(color: .yellow.opacity(0.55), radius: 22, x: 0, y: 0)
+                                .shadow(color: .orange.opacity(0.35), radius: 40, x: 0, y: 0)
+                                .transition(.scale.combined(with: .opacity))
+                                .scaleEffect(trophyScale)
+                        } else {
+                            Image(systemName: "trophy.fill")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 208, height: 208)
+                                .foregroundColor(.yellow)
+                                .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 10)
+                                // Warm glow
+                                .shadow(color: .yellow.opacity(0.55), radius: 20, x: 0, y: 0)
+                                .shadow(color: .orange.opacity(0.35), radius: 36, x: 0, y: 0)
+                                .transition(.scale.combined(with: .opacity))
+                                .scaleEffect(trophyScale)
+                        }
+                        #else
+                        Image("trophy")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 286, height: 286)
+                            .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 10)
+                            // Warm glow
+                            .shadow(color: .yellow.opacity(0.55), radius: 22, x: 0, y: 0)
+                            .shadow(color: .orange.opacity(0.35), radius: 40, x: 0, y: 0)
+                            .transition(.scale.combined(with: .opacity))
+                            .scaleEffect(trophyScale)
+                        #endif
+                        VStack(spacing: 10) {
+                            Text("Congratulations!")
+                                .font(.system(size: 40, weight: .heavy))
+                                .foregroundColor(.yellow)
+                                .shadow(color: .orange, radius: 4)
+
+                            VStack(spacing: 12) {
+                                Button(action: {
+                                    SoundManager.playSound(1104)
+                                    SoundManager.playVibration()
+                                    showQuiz = true
+                                }) {
+                                    Text("Daily Quiz")
+                                        .font(.system(size: 24, weight: .bold))
+                                        .frame(width: buttonWidth)
+                                        .padding(.vertical, 12)
+                                        .background(
+                                            LinearGradient(colors: [.green, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                        )
+                                        .foregroundColor(.white)
+                                        .cornerRadius(14)
+                                        .shadow(radius: 8)
+                                }
+
+                                Button(action: {
+                                    NotificationCenter.default.post(name: .nextVocabulary, object: nil)
+                                    showCongrats = false
+                                }) {
+                                    Text("Next »")
+                                        .font(.system(size: 28, weight: .bold))
+                                        .frame(width: buttonWidth)
+                                        .padding(.vertical, 12)
+                                        .background(
+                                            LinearGradient(colors: [.cyan, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                        )
+                                        .foregroundColor(.white)
+                                        .cornerRadius(14)
+                                        .shadow(color: Color.purple.opacity(nextGlowPulse ? 0.9 : 0.3), radius: nextGlowPulse ? 22 : 8)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 14)
+                                                .stroke(LinearGradient(colors: [.purple, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 3)
+                                                .blur(radius: nextGlowPulse ? 10 : 2)
+                                                .opacity(nextGlowPulse ? 0.9 : 0.35)
+                                                .scaleEffect(nextGlowPulse ? 1.03 : 1.0)
+                                        )
+                                }
+                                .onAppear {
+                                    withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                                        nextGlowPulse.toggle()
+                                    }
+                                }
+                                .onDisappear {
+                                    nextGlowPulse = false
+                                }
                             }
                             
-                            Button(action: {
-                                dismiss()
-                                DispatchQueue.main.asyncAfter(deadline: .now() + max(0.5, Double(item.thai.count) * 0.1)) {
-                                    NotificationCenter.default.post(name: .nextVocabulary, object: nil)
-                                }
-                                showCongrats = false
-                            }) {
-                                Text("Next »")
-                                    .font(.system(size: 28, weight: .bold))
-                                    .padding(.horizontal, 40)
-                                    .padding(.vertical, 12)
-                                    .background(
-                                        LinearGradient(colors: [.cyan, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                    )
-                                    .foregroundColor(.white)
-                                    .cornerRadius(14)
-                                    .shadow(radius: 8)
-                            }
+                        }
+                        .offset(y: 10)
+                    }
+                    .offset(y: -40)
+                    .onAppear {
+                        trophyScale = 0.92
+                        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                            trophyScale = 1.12
                         }
                     }
+                    .onDisappear {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            trophyScale = 1.0
+                        }
+                    }
+                    #if canImport(ConfettiSwiftUI)
                     .confettiCannon(trigger: $confettiTrigger, num: 100, confettis: [.shape(.circle), .shape(.square)], colors: [.yellow, .orange], repetitions: 1, repetitionInterval: 0.1)
+                    #endif
                     .zIndex(11)
                 }
 
                                 
                 
-                // MARK: - Remaining (Bottom Center Overlay)
+                // MARK: - Remaining / Navigation (Bottom Center Overlay)
                 VStack(alignment: .center, spacing: 2) {
-                    Text(remainingLabel)
-                        .font(.system(size: 14, weight: .thin))
-                        .foregroundColor(.secondary)
 
-                    // Gradient-masked remaining value
-                    Text(remainingFormatted)
-                        .font(.system(size: 40, weight: .heavy, design: .rounded))
-                        .foregroundColor(.clear)
-                        .overlay(
-                            LinearGradient(colors: [.pink, .purple, .blue, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                .mask(
-                                    Text(remainingFormatted)
-                                        .font(.system(size: 40, weight: .heavy, design: .rounded))
-                                )
-                        )
-                        .padding(.bottom, 4)
 
-                        // Prev / Next icons
-                        HStack(spacing: 40) {
-                            // Prev icon – go to previous vocabulary
+
+                        // Card-style Timer & Navigation
+                        HStack(alignment: .center, spacing: 0) {
+                            // Prev chevron
                             Button(action: {
-                                dismiss()
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    NotificationCenter.default.post(name: .prevVocabulary, object: nil)
-                                }
+                                NotificationCenter.default.post(name: .prevVocabulary, object: nil)
                             }) {
-                                Image(systemName: "arrow.backward")
-                                    .font(.system(size: 56))
-                                    .foregroundColor(.primary.opacity(0.8))
-                                    .offset(x: 20, y: 10)
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 50, weight: .heavy))
+                                    .foregroundColor(appTheme.accentArrowColor)
+                                    .offset(y: 10)
+                                    .padding(.leading, 16)
                             }
+                            Spacer(minLength: 8)
+                            // Cards row (Today Hits first)
+                            ScrollViewReader { proxy in
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    LazyHStack(spacing: 12) {
+                                        // Card 1: Today Hits (default first) with percentage change
+                                        StatCard(title: "Today Hits", titleColor: appTheme.primaryTextColor) {
+                                            VStack(spacing: 4) {
+                                                HStack(alignment: .top, spacing: 2) {
+                                                    let countString = "\(todayCount)"
+                                                    let digitCount = countString.count
+                                                    // Adaptive font size based on digit count (max 5 digits)
+                                                    let fontSize: CGFloat = digitCount <= 3 ? 62 : (digitCount == 4 ? 52 : 45)
+                                                    
+                                                    Text(countString)
+                                                        .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                                                        .foregroundColor(.clear)
+                                                        .fixedSize()
+                                                        .overlay(
+                                                            LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                                                .mask(
+                                                                    Text(countString)
+                                                                        .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                                                                )
+                                                        )
+                                                    
+                                                    // Percentage change superscript with arrow
+                                                    if yesterdayCount > 0 {
+                                                        VStack(spacing: 0) {
+                                                            let isUp = statPercentString.hasPrefix("+")
+                                                            let percentColor: Color = isUp ? .green : .red
+                                                            let numberOnly = statPercentString.replacingOccurrences(of: "%", with: "")
+                                                            // Number with superscript %
+                                                            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                                                                Text(numberOnly)
+                                                                    .font(.system(size: 18, weight: .bold))
+                                                                    .foregroundColor(percentColor)
+                                                                    .fixedSize()
+                                                                Text("%")
+                                                                    .font(.system(size: 12, weight: .bold))
+                                                                    .baselineOffset(4)
+                                                                    .foregroundColor(percentColor)
+                                                            }
+                                                            // Arrow indicator (filled triangle)
+                                                            Image(systemName: isUp ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
+                                                                .font(.system(size: 18, weight: .bold))
+                                                                .foregroundColor(percentColor)
+                                                        }
+                                                        .offset(y: 2)
+                                                    }
+                                                }
+                                                
+                                                // Total lifetime count
+                                                let lifetimeTotal = allItems.reduce(0) { $0 + $1.count }
+                                                Text("\(lifetimeTotal.formatted())")
+                                                    .font(.system(size: 12, weight: .regular))
+                                                    .foregroundColor(.gray)
+                                            }
+                                        }
+                                        .id("todayCard")
+                                        // Card 2: Time Left
+                                        StatCard(title: remainingLabel, titleColor: appTheme.primaryTextColor) {
+                                            Text(remainingFormatted)
+                                                .font(.system(size: 62, weight: .heavy, design: .rounded))
+                                                .foregroundColor(.clear)
+                                                .overlay(
+                                                    LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                                        .mask(
+                                                            Text(remainingFormatted)
+                                                                .font(.system(size: 62, weight: .heavy, design: .rounded))
+                                                        )
+                                                )
+                                        }
+                                        .id("timeCard")
 
-                            // Next icon – cycles to another vocab
-                            Button(action: {
-                                dismiss()
-                                // Allow UI dismiss animation before switching
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    NotificationCenter.default.post(name: .nextVocabulary, object: nil)
+                                        // Card 3: Session
+                                        StatCard(title: "Session", titleColor: appTheme.primaryTextColor) {
+                                            Text(sessionDurationFormatted)
+                                                .font(.system(size: 62, weight: .heavy, design: .rounded))
+                                                .foregroundColor(.clear)
+                                                .overlay(
+                                                    LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                                        .mask(
+                                                            Text(sessionDurationFormatted)
+                                                                .font(.system(size: 62, weight: .heavy, design: .rounded))
+                                                        )
+                                                )
+                                        }
+                                        .id("sessionCard")
+                                    }
+                                    .padding(.horizontal, 6)
+                                    .scrollTargetLayout()
                                 }
+                                .scrollTargetBehavior(.viewAligned)
+                                .frame(height: 140)
+                                .onAppear {
+                                    // Center the Today card by default
+                                    withAnimation(.none) {
+                                        proxy.scrollTo("todayCard", anchor: .center)
+                                    }
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            // Next chevron
+                            Button(action: {
+                                NotificationCenter.default.post(name: .nextVocabulary, object: nil)
                             }) {
-                                Image(systemName: "arrow.forward")
-                                    .font(.system(size: 56))
-                                    .foregroundColor(.primary.opacity(0.8))
-                                    .offset(x: -20, y: -5)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 50, weight: .heavy))
+                                    .foregroundColor(appTheme.accentArrowColor)
+                                    .offset(y: 10)
+                                    .padding(.trailing, 16)
                             }
                         }
+
                     
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .padding(.horizontal, 20)
-                .offset(y: -6)
+                .offset(y: 4)
 
-                // MARK: - 6. Session "Duration" (Bottom Right Overlay)
-                VStack(alignment: .center, spacing: 2) {
-                    Text("Duration")
-                        .font(.system(size: 14, weight: .thin))
-                        .foregroundColor(.secondary)
-                    Text(sessionDurationFormatted)
-                        .font(.system(size: 40, weight: .regular, design: .default))
-                        .foregroundColor(.primary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(.horizontal, 20)
-                .offset(x: -8, y: -61)
                 
                 if showMenu {
                     Color.black.opacity(0.25)
@@ -631,13 +1101,13 @@ struct CounterView: View {
 
                     VStack(spacing: 8) {
                         HStack {
-                            Spacer()
+                            Spacer(minLength: 10)
                             Button(action: { withAnimation { showMenu = false } }) {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.title2)
                                     .foregroundColor(.white)
                             }
-                            Spacer()
+                            Spacer(minLength: 10)
                         }
                         Text(boostType == .mins ? "Minutes Left" : boostType == .counts ? "Counts Left" : "Vocabs Left")
                             .font(.system(size: 14, weight: .thin))
@@ -676,49 +1146,12 @@ struct CounterView: View {
                 
 
             } // End of Root ZStack
+            } // GeometryReader
+            #if canImport(ConfettiSwiftUI)
             .confettiCannon(trigger: $confettiTrigger, num: 100, confettis: [.shape(.triangle), .shape(.circle)], colors: [.yellow, .orange], repetitions: 1, repetitionInterval: 0.1)
-            
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
-                ToolbarItem(placement: .principal) {
-                    if let category = item.category, !category.isEmpty {
-                        HStack(spacing: 8) {
-                            NavigationLink(destination: CategoryListView(items: $allItems, category: category)) {
-                                let count = allItems.filter { $0.category == category }.count
-                                Text("\(category) (\(count))")
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(appTheme.primaryTextColor)
-                            }
-                            
-                            Button(action: {
-                                let categoryItems = allItems.filter { $0.category == category }
-                                NotificationCenter.default.post(
-                                    name: .playCategory,
-                                    object: nil,
-                                    userInfo: ["items": categoryItems]
-                                )
-                            }) {
-                                Image(systemName: "play.circle.fill")
-                                    .foregroundColor(.accentColor)
-                            }
-                            .buttonStyle(BorderlessButtonStyle())
-                        }
-                    } else {
-                        Text("No Category")
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundColor(appTheme.primaryTextColor)
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Edit") {
-                        NotificationCenter.default.post(name: .editVocabularyEntry, object: item.id)
-                        dismiss()
-                    }
-                }
+            #endif
+            .toolbar(.hidden, for: .navigationBar)
 
-            }
             // End of NavigationStack content
         .onReceive(sessionTimer.$sessionDurationSeconds) { seconds in
             guard volumeLevel != 0 else { return }
@@ -755,6 +1188,11 @@ struct CounterView: View {
 
             // Set initial inactivity threshold
             updateInactivityThreshold()
+
+            // Initialize todayDate once to avoid empty default
+            if todayDate.isEmpty {
+                todayDate = Formatters.iso.string(from: Date())
+            }
             
             if boostType == .mins && boostValue > 0 {
                 // start 1-sec timer only if a goal is set
@@ -781,12 +1219,17 @@ struct CounterView: View {
             }
             sessionCount = 0
 
-    // Auto play Thai pronunciation after 1.2 second delay
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-        speakThai(item.thai)
-    }
+    // Auto play Thai pronunciation after 1.2 second delay (cancellable)
+    autoSpeakWork?.cancel()
+    let work = DispatchWorkItem { speakThai(item.thai) }
+    autoSpeakWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
         }
         .preferredColorScheme(appTheme.colorScheme)
+        .sheet(isPresented: $showQuiz) {
+            DailyQuizView()
+                .preferredColorScheme(appTheme.colorScheme)
+        }
         .onChange(of: remaining) { oldValue, newValue in
             if newValue == 0 && boostValue > 0 {
                 if !showCongrats {
@@ -799,6 +1242,7 @@ struct CounterView: View {
             // Immediately stop any ongoing speech when switching vocabs
             synthesizer.stopSpeaking(at: .immediate)
             SoundManager.fadeOutCurrentSound()
+            autoSpeakWork?.cancel()
             
 
             if let idx = VocabularyStatus.allCases.firstIndex(of: item.status) {
@@ -821,11 +1265,14 @@ struct CounterView: View {
         // Stop any currently playing sounds with fade out
         SoundManager.fadeOutCurrentSound()
         
-        // Store a strong reference to the synthesizer to prevent deallocation
-        let synthesizer = self.synthesizer
-        
         // Use a small delay to ensure smooth transition
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            // Safely access synthesizer with nil check
+            guard let synthesizer = self.synthesizer as AVSpeechSynthesizer? else { 
+                print("Synthesizer is nil, skipping speech")
+                return 
+            }
+            
             // If the synthesizer is already speaking, let it finish instead of interrupting.
             guard !synthesizer.isSpeaking else { return }
             
@@ -836,11 +1283,44 @@ struct CounterView: View {
             utterance.voice = AVSpeechSynthesisVoice(language: "th-TH")
             utterance.rate = 0.45
             
+            // Start speech synthesis (non-throwing)
             synthesizer.speak(utterance)
-            
-            // Debug log – can hook inactivity timer update here
-            print("Would update inactivity threshold here")
+            print("Speech synthesis started for: \(text)")
         }
+    }
+
+    // Immediate TTS for user taps: interrupts and plays right away
+    private func speakThaiNow(_ text: String) {
+        guard UserDefaults.standard.bool(forKey: "soundEnabled") else { return }
+        DispatchQueue.main.async {
+            guard !text.isEmpty else { return }
+            // Interrupt any ongoing speech for snappy response
+            self.synthesizer.stopSpeaking(at: .immediate)
+            // Ensure session is active
+            #if os(iOS)
+            try? AVAudioSession.sharedInstance().setActive(true, options: [])
+            #endif
+            // Tiny delay avoids iOS race after stopSpeaking
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+                let utterance = AVSpeechUtterance(string: text)
+                utterance.voice = AVSpeechSynthesisVoice(language: "th-TH")
+                utterance.rate = 0.45
+                self.synthesizer.speak(utterance)
+            }
+        }
+    }
+
+    // Configure audio session for immediate, reliable TTS playback
+    private func configureAudioSession() {
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, options: [.duckOthers])
+            try session.setActive(true, options: [])
+        } catch {
+            print("AudioSession error: \(error.localizedDescription)")
+        }
+        #endif
     }
     
     private func play10XTimes() {
@@ -874,18 +1354,24 @@ struct CounterView: View {
     
     // MARK: - ChatGPT Helper
     private func openChatGPT(for text: String) {
-        #if os(iOS)
-        let prompt = "Please explain the Thai word '\(text)' and give usage examples."
-        if let encoded = prompt.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let url = URL(string: "https://chat.openai.com/?model=gpt-4o&prompt=\(encoded)") {
-            UIApplication.shared.open(url)
-        }
-        #endif
-    }
+#if os(iOS)
+let isSingleWord = !text.contains(" ") && text.count < 15 // Adjust threshold as needed
+let prompt: String
+if isSingleWord {
+    prompt = "Please explain composition of this Thai word '\(text)'"
+} else {
+    prompt = "Explain '\(text)'s sentense structure."
+}
+if let encoded = prompt.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+   let url = URL(string: "https://chat.openai.com/?model=gpt-4o&prompt=\(encoded)") {
+    UIApplication.shared.open(url)
+}
+#endif
+}
     
     // MARK: - Google Translate Helper
     private func openGoogleTranslate(for text: String) {
-        #if os(iOS)
+#if os(iOS)
         let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         if let url = URL(string: "https://translate.google.com/?sl=th&tl=en&text=\(encoded)&op=translate") {
             UIApplication.shared.open(url)
@@ -893,34 +1379,99 @@ struct CounterView: View {
         #endif
     }
     
+    // MARK: - Google Search Helper
+    private func openGoogleSearch(for text: String) {
+        #if os(iOS)
+        let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        if let url = URL(string: "https://www.google.com/search?q=\(encoded)") {
+            UIApplication.shared.open(url)
+        }
+        #endif
+    }
+
+    // MARK: - Google Images Helper
+    private func openGoogleImages(for text: String) {
+        #if os(iOS)
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        if let url = URL(string: "https://www.google.com/search?tbm=isch&q=\(encoded)") {
+            UIApplication.shared.open(url)
+        }
+        #endif
+    }
+
     // Queue congrats to run after pronunciation fully completes
     private func queueCongrats(for text: String) {
+        // Play sound when marking as ready with slight delay (sound1)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            AudioServicesPlaySystemSound(1025)
+            SoundManager.playVibration()
+        }
+        
         // 0.5-second pause before speaking
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             speechDelegate.onDone = {
                 // 0.5-second pause after speech finishes
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    SoundManager.playSound(1027)
-                    SoundManager.playVibration()
                     showCongrats = true
                     confettiTrigger += 1
                     updateRecentVocabs(item)
                 }
             }
             speakThai(text)
+    }
+    }
+
+    // MARK: - Study History Helpers
+    private func dayKey(from date: Date) -> String {
+        return Formatters.day.string(from: date)
+    }
+
+    private func loadStudyHistory() -> [String: Int] {
+        if let data = studyHistoryJSON.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            return decoded
+        }
+        return [:]
+    }
+
+    private func appendStudyHistory(date: Date, increment: Int) {
+        var history = loadStudyHistory()
+        let key = dayKey(from: date)
+        let current = history[key] ?? 0
+        history[key] = max(0, current + increment)
+        saveStudyHistory(history)
+    }
+
+    // Track today's count and roll over on new day
+    private func updateTodayCount(by increment: Int) {
+        let now = Date()
+        let storedDate = Formatters.iso.date(from: todayDate) ?? now
+        let cal = Calendar.current
+        if !cal.isDate(storedDate, inSameDayAs: now) {
+            // New day: reset base and set first increment
+            todayDate = Formatters.iso.string(from: now)
+            todayCount = max(0, increment)
+            appendStudyHistory(date: now, increment: todayCount)
+        } else {
+            todayCount = max(0, todayCount + increment)
+            appendStudyHistory(date: now, increment: increment)
         }
     }
 
-    // MARK: - Today Count Helper
-    private func updateTodayCount(by increment: Int) {
-        let formatter = ISO8601DateFormatter()
+    private func saveStudyHistory(_ history: [String: Int]) {
+        // Keep last 400 days to support yearly/all-time views
         let now = Date()
-        let storedDate = formatter.date(from: todayDate) ?? now
-        if !Calendar.current.isDateInToday(storedDate) {
-            todayCount = 0
-            todayDate = formatter.string(from: now)
+        let cal = Calendar.current
+        let keys: [String] = (0..<400).compactMap { off in
+            guard let d = cal.date(byAdding: .day, value: -off, to: now) else { return nil }
+            return dayKey(from: d)
         }
-        todayCount += increment
+        let trimmed = history.filter { keys.contains($0.key) }
+        if let data = try? JSONEncoder().encode(trimmed),
+           let s = String(data: data, encoding: .utf8) {
+            studyHistoryJSON = s
+        }
     }
 
   

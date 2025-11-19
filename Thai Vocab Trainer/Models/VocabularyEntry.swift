@@ -1,6 +1,6 @@
 import Foundation
 
-struct VocabularyEntry: Identifiable, Equatable, Codable {
+struct VocabularyEntry: Identifiable, Equatable, Codable, Sendable {
     var id: UUID
     var thai: String
     var burmese: String?
