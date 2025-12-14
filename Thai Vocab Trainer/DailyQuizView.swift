@@ -19,6 +19,11 @@ struct DailyQuizView: View {
     private let speechDelegate = SpeechDelegate()
     private let synthesizer = AVSpeechSynthesizer()
 
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var vocabStore: VocabStore
+    @EnvironmentObject private var router: AppRouter
+    @AppStorage("lastVocabID") private var storedLastVocabID: String = ""
+
     init() {
         synthesizer.delegate = speechDelegate
     }
@@ -36,8 +41,15 @@ struct DailyQuizView: View {
         @AppStorage("sessionPaused") var sessionPaused: Bool = false
         if sessionPaused {
             sessionPaused = false
-            // Notify the counter view to resume
-            NotificationCenter.default.post(name: .nextVocabulary, object: nil)
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                if let uuid = UUID(uuidString: storedLastVocabID),
+                   vocabStore.items.contains(where: { $0.id == uuid }) {
+                    router.openCounter(id: uuid)
+                } else if let next = vocabStore.items.first(where: { $0.status != .ready }) ?? vocabStore.items.first {
+                    router.openCounter(id: next.id)
+                }
+            }
         }
     }
 
@@ -78,6 +90,27 @@ struct DailyQuizView: View {
     @AppStorage("attemptTotal") private var attemptTotal: Int = 0
     // Quiz category inclusion map (JSON encoded in Settings)
     @AppStorage("quizCategoryMapJSON") private var quizCategoryMapJSON: String = ""
+    @AppStorage("dailyQuizCoveredIDsJSON") private var dailyQuizCoveredIDsJSON: String = ""
+
+    private func decodeCoveredIDs() -> Set<UUID> {
+        guard !dailyQuizCoveredIDsJSON.isEmpty,
+              let data = dailyQuizCoveredIDsJSON.data(using: .utf8),
+              let raw = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return Set(raw.compactMap { UUID(uuidString: $0) })
+    }
+
+    private func encodeCoveredIDs(_ set: Set<UUID>) {
+        let raw = set.map { $0.uuidString }
+        if let data = try? JSONEncoder().encode(raw),
+           let s = String(data: data, encoding: .utf8) {
+            dailyQuizCoveredIDsJSON = s
+        } else {
+            dailyQuizCoveredIDsJSON = ""
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -280,7 +313,14 @@ struct DailyQuizView: View {
                 .font(.largeTitle)
                 .bold()
             VStack(spacing: 20) {
-                NavigationLink(destination: ContentView()) {
+                Button(action: {
+                    playTapSound()
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        router.dismissSheet()
+                        router.openContent()
+                    }
+                }) {
                     Text("All Vocabs")
                         .font(.title3.bold())
                         .frame(maxWidth: .infinity)
@@ -296,7 +336,17 @@ struct DailyQuizView: View {
                 
                 // moved More Quiz button to bottom
                 
-                NavigationLink(destination: DailyStatView()) {
+                Button(action: {
+                    playTapSound()
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        router.dismissSheet()
+                        router.openContent()
+                        router.openCategory("")
+                        router.openContent()
+                        router.openSettings()
+                    }
+                }) {
                     Text("See Stats")
                         .font(.title3.bold())
                         .frame(maxWidth: .infinity)
@@ -399,8 +449,20 @@ struct DailyQuizView: View {
         }
         guard items.count >= 3 else { return }
 
+        let covered = decodeCoveredIDs()
+        let eligibleIDs = Set(items.map { $0.id })
+        var remaining = items.filter { !covered.contains($0.id) }
+        if !eligibleIDs.isEmpty, covered.isSuperset(of: eligibleIDs) {
+            encodeCoveredIDs([])
+            remaining = items
+        }
+        if remaining.count < 3 {
+            encodeCoveredIDs([])
+            remaining = items
+        }
+
         var qs: [QuizQuestion] = []
-        let pool = items.shuffled()
+        let pool = remaining.shuffled()
 
         for item in pool.prefix(5) {
             let correct = item.burmese ?? ""
@@ -460,6 +522,9 @@ struct DailyQuizView: View {
         
         if option == question.correctBurmese {
             score += 1
+            var covered = decodeCoveredIDs()
+            covered.insert(question.vocabID)
+            encodeCoveredIDs(covered)
             // Play cheer sound after 0.25s delay for correct answer
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 SoundManager.playSound(1025) // Cheer sound for correct answer
@@ -589,31 +654,27 @@ struct DailyQuizView: View {
 
     // MARK: - Downgrade Ready -> Drill when a quiz is failed
     private func downgradeReadyToDrill(for id: UUID, thai: String) {
-        // Load persisted items
-        var items: [VocabularyEntry] = []
-        if let data = UserDefaults.standard.data(forKey: "vocab_items"),
-           let decoded = try? JSONDecoder().decode([VocabularyEntry].self, from: data) {
-            items = decoded
-        }
+        // Update via VocabStore directly instead of NotificationCenter/UserDefaults
         // Try by ID first
-        var idx = items.firstIndex { $0.id == id }
-        // Fallback: match by normalized Thai text (in case IDs differ)
-        if idx == nil {
-            let norm: (String) -> String = { s in
-                s.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: .current)
+        if let idx = vocabStore.items.firstIndex(where: { $0.id == id }) {
+            var entry = vocabStore.items[idx]
+            if entry.status == .ready {
+                entry.status = .drill
+                vocabStore.update(entry)
             }
-            let target = norm(thai)
-            idx = items.firstIndex { norm($0.thai) == target }
+            return
         }
-        guard let found = idx else { return }
-        if items[found].status == .ready {
-            items[found].status = .drill
-            // Persist back
-            if let data = try? JSONEncoder().encode(items) {
-                UserDefaults.standard.set(data, forKey: "vocab_items")
+        // Fallback: match by normalized Thai text (in case IDs differ)
+        let norm: (String) -> String = { s in
+            s.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: .current)
+        }
+        let target = norm(thai)
+        if let idx2 = vocabStore.items.firstIndex(where: { norm($0.thai) == target }) {
+            var entry = vocabStore.items[idx2]
+            if entry.status == .ready {
+                entry.status = .drill
+                vocabStore.update(entry)
             }
-            // Notify live views to update if they are visible
-            NotificationCenter.default.post(name: Notification.Name("vocabStatusChanged"), object: items[found].id)
         }
     }
 }

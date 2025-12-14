@@ -4,11 +4,10 @@ import UserNotifications
 @main
 struct Thai_Vocab_TrainerApp: App {
     @StateObject private var themeManager = ThemeManager()
-    @State private var items: [VocabularyEntry] = []
+    @StateObject private var vocabStore = VocabStore()
+    @StateObject private var router = AppRouter.shared
 
     init() {
-        // copyCSVToDocumentsIfNeeded() // disabled legacy CSV copy
-        _items = State(initialValue: loadSavedOrCSV())
         // Reset paused flag each launch so pause is temporary
         UserDefaults.standard.set(false, forKey: "sessionPaused")
         // Request notification permission and schedule daily reminder
@@ -24,73 +23,26 @@ struct Thai_Vocab_TrainerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            IntroView(
-                totalCount: totalCount(),
-                vocabCount: items.count,
-                queueCount: statusCount(.queue),
-                drillCount: statusCount(.drill),
-                readyCount: statusCount(.ready)
-            )
-            .environmentObject(themeManager)
-        }
-    }
-
-    private func loadSavedOrCSV() -> [VocabularyEntry] {
-        if let savedData = UserDefaults.standard.data(forKey: "vocab_items"),
-           let decoded = try? JSONDecoder().decode([VocabularyEntry].self, from: savedData) {
-            return decoded
-        } else {
-            return loadCSV(from: "vocab")
-        }
-    }
-
-    private func statusCount(_ status: VocabularyStatus) -> Int {
-        items.filter { $0.status == status }.count
-    }
-
-    private func totalCount() -> Int {
-        items.reduce(0) { $0 + $1.count }
-    }
-
-    private func daysCount() -> Int {
-        let calendar = Calendar.current
-        let startDateComponents = DateComponents(year: 2023, month: 6, day: 19)
-        guard let startDate = calendar.date(from: startDateComponents) else { return 0 }
-        let today = Date()
-        let daysPassed = calendar.dateComponents([.day], from: startDate, to: today).day ?? 0
-        return daysPassed + 1
-    }
-
-    private func loadCSV(from filename: String) -> [VocabularyEntry] {
-        let fileManager = FileManager.default
-        let docsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let fileURL = docsURL.appendingPathComponent("\(filename).csv")
-
-        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
-            print("Failed to read CSV from Documents folder")
-            return []
-        }
-
-        let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
-        var entries: [VocabularyEntry] = []
-
-        for (index, line) in lines.enumerated() {
-            if index == 0 { continue } // skip header
-            let cols = line.components(separatedBy: ",")
-            if cols.count >= 4 {
-                let status = VocabularyStatus(rawValue: cols[3].capitalized) ?? .queue
-                let count = Int(cols[2]) ?? 0
-                let burmese = cols[1].isEmpty ? nil : cols[1]
-                let category = cols.count > 4 ? (cols[4].isEmpty ? nil : cols[4]) : nil
-                entries.append(VocabularyEntry(thai: cols[0], burmese: burmese, count: count, status: status, category: category))
+            Group {
+                switch router.destination {
+                case .intro:
+                    let items = vocabStore.items
+                    IntroView(
+                        totalCount: items.reduce(0) { $0 + $1.count },
+                        vocabCount: items.count,
+                        queueCount: items.filter { $0.status == .queue }.count,
+                        drillCount: items.filter { $0.status == .drill }.count,
+                        readyCount: items.filter { $0.status == .ready }.count
+                    )
+                case .content:
+                    ContentView()
+                }
             }
+            .environmentObject(themeManager)
+            .environmentObject(vocabStore)
+            .environmentObject(router)
         }
-        return entries
     }
-
-
-
-
 
     // MARK: - Notification Scheduling
     private static func scheduleDailyReminders() {

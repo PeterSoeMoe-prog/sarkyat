@@ -30,6 +30,7 @@ struct CategoryWordsView: View {
     // Editing state to allow drag-reorder without disabling swipe actions
     @State private var isEditing: Bool = false
     @Environment(\.scenePhase) private var scenePhase
+    @EnvironmentObject private var router: AppRouter
     
     // Convenience to access currently selected item
     private var currentItem: VocabularyEntry? {
@@ -232,10 +233,14 @@ struct CategoryWordsView: View {
         .onReceive(ttsPlayer.$isSpeakingQueue) { playing in
             isPlaying = playing
         }
-        .onReceive(NotificationCenter.default.publisher(for: .editVocabularyEntry)) { notification in
-            if let id = notification.object as? UUID,
-               let item = items.first(where: { $0.id == id }) {
-                editingItem = item // trigger sheet
+        .onChange(of: router.sheet) { _, newValue in
+            switch newValue {
+            case .editWord(let id):
+                if let item = items.first(where: { $0.id == id }) {
+                    editingItem = item
+                }
+            default:
+                break
             }
         }
         // Expanded player sheet

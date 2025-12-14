@@ -48,6 +48,7 @@ struct CollapsibleSearchBox: View {
                         
 
                         Button(action: {
+                            searchText = ""
                             withAnimation { expanded = false }
                             isFocused = false
                             isActive = false

@@ -14,24 +14,57 @@ final class CategoryViewModel: ObservableObject {
 
     @Published var stats: [Stat] = []
 
-    func load() {
-        // Load source synchronously (fast), heavy aggregation off-main
-        let entries: [VocabularyEntry]
-        if let customLoader = Optional<(()->[VocabularyEntry])>(loadCSV) {
-            entries = customLoader()
-        } else {
-            entries = []
+    private func loadCategoryRows() -> [(category: String, isReady: Bool)] {
+        let fileManager = FileManager.default
+        let docsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let fileURL = docsURL.appendingPathComponent("vocab.csv")
+        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+            return []
         }
-        guard !entries.isEmpty else { return }
+        let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
+        guard lines.count > 1 else { return [] }
+
+        let header = lines[0].lowercased()
+        let hasIDFirst = header.hasPrefix("id,")
+
+        var rows: [(category: String, isReady: Bool)] = []
+        rows.reserveCapacity(lines.count - 1)
+        for line in lines.dropFirst() {
+            let cols = line.components(separatedBy: ",")
+            if hasIDFirst {
+                guard cols.count >= 6 else { continue }
+                let statusRaw = cols[4].trimmingCharacters(in: .whitespacesAndNewlines)
+                let categoryRaw = cols[5].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !categoryRaw.isEmpty else { continue }
+                let isReady = statusRaw.caseInsensitiveCompare("ready") == .orderedSame
+                rows.append((category: categoryRaw, isReady: isReady))
+            } else {
+                guard cols.count >= 4 else { continue }
+                let statusRaw = cols[3].trimmingCharacters(in: .whitespacesAndNewlines)
+                let categoryRaw = (cols.count > 4 ? cols[4] : "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !categoryRaw.isEmpty else { continue }
+                let isReady = statusRaw.caseInsensitiveCompare("ready") == .orderedSame
+                rows.append((category: categoryRaw, isReady: isReady))
+            }
+        }
+        return rows
+    }
+
+    func load() {
+        let rows = loadCategoryRows()
+        guard !rows.isEmpty else {
+            self.stats = []
+            return
+        }
 
         DispatchQueue.global(qos: .userInitiated).async {
             var buckets: [String: (completed: Int, total: Int)] = [:]
             buckets.reserveCapacity(128)
-            for entry in entries {
-                guard let rawCat = entry.category?.trimmingCharacters(in: .whitespacesAndNewlines), !rawCat.isEmpty else { continue }
+            for row in rows {
+                let rawCat = row.category
                 var record = buckets[rawCat] ?? (0, 0)
                 record.total &+= 1
-                if entry.status == .ready { record.completed &+= 1 }
+                if row.isReady { record.completed &+= 1 }
                 buckets[rawCat] = record
             }
             let computed = buckets.map { Stat(name: $0.key, completed: $0.value.completed, total: $0.value.total) }

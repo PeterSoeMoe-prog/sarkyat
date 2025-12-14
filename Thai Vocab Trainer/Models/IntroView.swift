@@ -11,6 +11,7 @@ import UIKit
 import AudioToolbox
 
 struct IntroView: View {
+    @EnvironmentObject private var router: AppRouter
     @AppStorage("remainingSeconds") private var remainingSeconds: Int = 0
     @AppStorage("remainingTimestamp") private var remainingTimestamp: Double = 0
     @AppStorage("sessionPaused") private var sessionPaused: Bool = false
@@ -21,13 +22,9 @@ struct IntroView: View {
     let queueCount: Int
     let drillCount: Int
     let readyCount: Int
-
     // Theme & navigation
     @AppStorage("appTheme") private var appTheme: AppTheme = .light
-    @State private var navigateToContent = false
-    @State private var showSettings = false
     @State private var showCategories = false
-    @State private var showQuiz = false
     @State private var showDailyStats = false
     @State private var resumeGlow = false
     @ObservedObject private var notificationEngine = NotificationEngine.shared
@@ -40,7 +37,6 @@ struct IntroView: View {
     @State private var selectedCounts: Int = 5000
     @State private var selectedVocabs: Int = 10
     @State private var statPage: Int = 0
-    @State private var pendingAddWordFromIntro: Bool = false
 
     // Study-start date (you can expose this later in Settings)
     private let startDate: Date = Calendar.current.date(from: DateComponents(year: 2023, month: 6, day: 19)) ?? Date()
@@ -130,41 +126,38 @@ struct IntroView: View {
                             playConfirmFeedback()
                             // Persist boost selections
                             boostTypeRaw = (selectedBoostType ?? .mins).rawValue
-                        switch (selectedBoostType ?? .mins) {
-                        case .mins:    boostValue = selectedMins * 60
-                        case .counts:  boostValue = selectedCounts
-                        case .vocabs:  boostValue = selectedVocabs
+                            switch (selectedBoostType ?? .mins) {
+                            case .mins:    boostValue = selectedMins * 60
+                            case .counts:  boostValue = selectedCounts
+                            case .vocabs:  boostValue = selectedVocabs
+                            }
+                            remainingSeconds = boostValue
+                            remainingTimestamp = Date().timeIntervalSince1970
+                            if selectedBoostType != nil {
+                                router.openContent()
+                            }
+                        } label: {
+                            Text("Start Session")
+                                .font(.title3.bold())
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                
+                                .background(
+                                    LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                )
+                                .foregroundColor(.white)
+                                .cornerRadius(16)
+                                .shadow(radius: 6)
+                            .padding(.leading, 16)
                         }
-                        remainingSeconds = boostValue
-                        remainingTimestamp = Date().timeIntervalSince1970
-                        if selectedBoostType != nil {
-                            navigateToContent = true
-                        }
-                    } label: {
-                        Text("Start Session")
-                            .font(.title3.bold())
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            
-                            .background(
-                                LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            )
-                            .foregroundColor(.white)
-                            .cornerRadius(16)
-                            .shadow(radius: 6)
-                    .padding(.leading, 16)
-                    }
-                    .opacity(selectedBoostType == nil ? 0.5 : 1)
+                        .opacity(selectedBoostType == nil ? 0.5 : 1)
 
                         Button {
                             sessionPaused = false
-                            navigateToContent = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                if let uuid = UUID(uuidString: storedLastVocabID) {
-                                    NotificationCenter.default.post(name: .openCounter, object: uuid)
-                                } else {
-                                    NotificationCenter.default.post(name: .nextVocabulary, object: nil)
-                                }
+                            if let uuid = UUID(uuidString: storedLastVocabID) {
+                                router.openCounter(id: uuid)
+                            } else {
+                                router.openContent()
                             }
                         } label: {
                             Text("Resume")
@@ -247,17 +240,13 @@ struct IntroView: View {
                         .frame(maxWidth: .infinity)
                         .onTapGesture {
                             playTapSound()
-                            navigateToContent = true // open list screen with search available there
-                            // After presenting ContentView, ask it to open the search box
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                                NotificationCenter.default.post(name: Notification.Name("activateSearch"), object: nil)
-                            }
+                            router.openContent(activateSearch: true)
                         }
                     actionButton(icon: "book.fill", title: "All Vocab")
                         .frame(maxWidth: .infinity)
                         .onTapGesture {
                             playTapSound()
-                            navigateToContent = true // open list screen
+                            router.openContent()
                         }
                     actionButton(icon: "square.grid.2x2.fill", title: "Categories")
                         .frame(maxWidth: .infinity)
@@ -267,7 +256,7 @@ struct IntroView: View {
                         }
                     Button(action: {
                         playTapSound()
-                        showQuiz = true
+                        router.openDailyQuiz()
                     }) {
                         actionButton(icon: "bolt.fill", title: "Daily Quiz")
                     }
@@ -278,12 +267,13 @@ struct IntroView: View {
                             playTapSound()
                             showDailyStats = true
                         }
-                    actionButton(icon: "gearshape.fill", title: "Settings")
-                        .frame(maxWidth: .infinity)
-                        .onTapGesture {
-                            playTapSound()
-                            showSettings = true
-                        }
+                    Button(action: {
+                        playTapSound()
+                        router.openSettings()
+                    }) {
+                        actionButton(icon: "gearshape.fill", title: "Settings")
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .foregroundColor(appTheme.primaryTextColor)
                 .font(.title3)
@@ -295,58 +285,37 @@ struct IntroView: View {
         }
         // Add a small spacer inset above the bottom safe area so the
         // home indicator does not overlap the bottom action bar.
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 18)
-        }
-        .fullScreenCover(isPresented: $navigateToContent) {
-            ContentView()
-                .preferredColorScheme(appTheme.colorScheme)
-                .onAppear {
-                    if pendingAddWordFromIntro {
-                        DispatchQueue.main.async {
-                            NotificationCenter.default.post(name: .addWord, object: nil)
-                            pendingAddWordFromIntro = false
-                        }
+         .safeAreaInset(edge: .bottom) {
+             Color.clear.frame(height: 18)
+         }
+         .navigationDestination(isPresented: $showCategories) {
+             VocabCategoryView()
+         }
+         .sheet(isPresented: $showDailyStats) {
+             DailyStatView()
+         }
+         .sheet(
+            isPresented: Binding(
+                get: { router.sheet == .settings },
+                set: { isPresented in
+                    if !isPresented, router.sheet == .settings {
+                        router.dismissSheet()
                     }
                 }
-        }
-        .sheet(isPresented: $showSettings) {
+            )
+         ) {
             SettingsView()
-        }
-        .navigationDestination(isPresented: $showCategories) {
-            VocabCategoryView()
-        }
-        .sheet(isPresented: $showQuiz) {
-            DailyQuizView()
-        }
-        .sheet(isPresented: $showDailyStats) {
-            DailyStatView()
-        }
-        .withNotificationBell()
-        .onReceive(NotificationCenter.default.publisher(for: .addWord)) { _ in
-            if !navigateToContent {
-                pendingAddWordFromIntro = true
-                navigateToContent = true
-            }
-        }
-        // Deep-link from notification to open a specific vocab's CounterView
-        .onReceive(NotificationCenter.default.publisher(for: .openCounterFromNotification)) { note in
-            // Ensure content is shown; then forward the full payload (UUID or [String: Any])
-            if !navigateToContent { navigateToContent = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                NotificationCenter.default.post(name: .openCounter, object: note.object)
-            }
-        }
-        .onAppear {
-            // Request notification permission on first launch
-            notificationEngine.requestPermission { granted in
-                if granted {
+         }
+         .withNotificationBell()
+         .onAppear {
+             // Request notification permission on first launch
+             notificationEngine.requestPermission { granted in
+                 if granted {
                     print("✅ Notification permission granted")
                 } else {
                     print("⚠️ Notification permission denied")
                 }
             }
-            
             // DEBUG: Add sample notifications for testing badge
             #if DEBUG
             if notificationEngine.pendingNotifications.isEmpty {
@@ -376,12 +345,12 @@ struct IntroView: View {
                 let elapsed = Int(Date().timeIntervalSince1970 - remainingTimestamp)
                 effectiveRemaining = max(0, remainingSeconds - elapsed)
             }
-            if !sessionPaused && effectiveRemaining > 0 {
-                navigateToContent = true
-            } else if remainingSeconds != 0 {
-                // Session actually finished while the app wasn’t running
-                remainingSeconds = 0
-            }
+             if !sessionPaused && effectiveRemaining > 0 {
+                 router.openContent()
+             } else if remainingSeconds != 0 {
+                 // Session actually finished while the app wasn’t running
+                 remainingSeconds = 0
+             }
             // Note: do not consume deep link here; VocabularyListView will consume it on appear
         }
         // Close NavigationStack

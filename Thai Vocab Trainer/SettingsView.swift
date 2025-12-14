@@ -8,6 +8,7 @@ import SwiftUI
 struct SettingsView: View {
     // Persisted theme selection shared with the rest of the app
     @AppStorage("appTheme") private var appTheme: AppTheme = .light
+    @EnvironmentObject private var vocabStore: VocabStore
 
     // Dismiss environment
     @Environment(\.dismiss) private var dismiss
@@ -19,6 +20,34 @@ struct SettingsView: View {
     @State private var exportError: String?
     @State private var importMessage: String?
 
+    private var darkModeBinding: Binding<Bool> {
+        Binding(
+            get: { appTheme == .dark },
+            set: { newValue in appTheme = newValue ? .dark : .light }
+        )
+    }
+
+    private var soundEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { UserDefaults.standard.bool(forKey: "soundEnabled") },
+            set: { newValue in UserDefaults.standard.set(newValue, forKey: "soundEnabled") }
+        )
+    }
+
+    private var isShowingExportError: Binding<Bool> {
+        Binding<Bool>(
+            get: { exportError != nil },
+            set: { _ in exportError = nil }
+        )
+    }
+
+    private var isShowingImportMessage: Binding<Bool> {
+        Binding<Bool>(
+            get: { importMessage != nil },
+            set: { _ in importMessage = nil }
+        )
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -26,19 +55,13 @@ struct SettingsView: View {
                     HStack {
                         Text("Dark Mode")
                         Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { appTheme == .dark },
-                            set: { newValue in appTheme = newValue ? .dark : .light }
-                        ))
+                        Toggle("", isOn: darkModeBinding)
                         .tint(.accentColor)
                     }
                     HStack {
                         Text("Sound")
                         Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { UserDefaults.standard.bool(forKey: "soundEnabled") },
-                            set: { newValue in UserDefaults.standard.set(newValue, forKey: "soundEnabled") }
-                        ))
+                        Toggle("", isOn: soundEnabledBinding)
                         .tint(.accentColor)
                     }
                 }
@@ -50,42 +73,36 @@ struct SettingsView: View {
                         isImporting = true
                     }
                     Button("Export CSV") {
-                        DispatchQueue.global(qos: .userInitiated).async {
-                            // Load current items from storage
-                            var items: [VocabularyEntry] = []
-                            if let savedData = UserDefaults.standard.data(forKey: "vocab_items"),
-                               let decoded = try? JSONDecoder().decode([VocabularyEntry].self, from: savedData) {
-                                items = decoded
-                            }
+                        Task.detached(priority: .userInitiated) {
                             do {
-                                let url = try CSVManager.makeTempCSV(from: items)
-                                // Present on main thread after slight delay to ensure sheet is configured properly
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                let snapshot = await MainActor.run { vocabStore.items }
+                                let url = try CSVManager.makeTempCSV(from: snapshot)
+                                await MainActor.run {
                                     shareURL = ShareItem(url: url)
                                 }
                             } catch {
-                                DispatchQueue.main.async {
+                                await MainActor.run {
                                     exportError = error.localizedDescription
                                 }
                             }
                         }
                     }
                     Button("Export Quiz Stats") {
-                        DispatchQueue.global(qos: .userInitiated).async {
+                        Task.detached(priority: .userInitiated) {
                             do {
                                 let url = try QuizStatsManager.shared.exportQuizStatsToDocuments()
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                await MainActor.run {
                                     shareURL = ShareItem(url: url)
                                 }
                             } catch {
-                                DispatchQueue.main.async {
+                                await MainActor.run {
                                     exportError = error.localizedDescription
                                 }
                             }
                         }
                     }
                     Button("Clean Duplicates") {
-                        NotificationCenter.default.post(name: Notification.Name("cleanDuplicates"), object: nil)
+                        vocabStore.cleanDuplicates()
                     }
                 }
 
@@ -142,10 +159,8 @@ struct SettingsView: View {
                                     if importedItems.isEmpty {
                                         importMessage = "Imported 0 items (functionality not implemented yet)."
                                     } else {
-                                        // Save to UserDefaults
-                                        if let encoded = try? JSONEncoder().encode(importedItems) {
-                                            UserDefaults.standard.set(encoded, forKey: "vocab_items")
-                                        }
+                                        // CSV-only persistence: apply to store
+                                        vocabStore.setItems(importedItems)
                                         importMessage = "Imported \(importedItems.count) items."
                                     }
                                 }
@@ -160,19 +175,13 @@ struct SettingsView: View {
             }
         }
         // Export error alert
-        .alert("Failed to export CSV", isPresented: Binding<Bool>(
-            get: { exportError != nil },
-            set: { _ in exportError = nil }
-        )) {
+        .alert("Failed to export CSV", isPresented: isShowingExportError) {
             Button("OK", role: .cancel) { exportError = nil }
         } message: {
             Text(exportError ?? "Unknown error")
         }
         // Import result alert
-        .alert("Import CSV", isPresented: Binding<Bool>(
-            get: { importMessage != nil },
-            set: { _ in importMessage = nil }
-        )) {
+        .alert("Import CSV", isPresented: isShowingImportMessage) {
             Button("OK", role: .cancel) { importMessage = nil }
         } message: {
             Text(importMessage ?? "-")

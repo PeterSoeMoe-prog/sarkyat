@@ -26,18 +26,12 @@ final class NotificationCenterDelegate: NSObject, UNUserNotificationCenterDelega
         }
 
         if let id = targetID {
-            // Persist deep link so it can be consumed after UI is ready
-            DeepLinkStore.store(id, thai: thaiWord)
             NotificationEngine.shared.updateBadgeCount()
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 #if DEBUG
-                print("➡️ Posting openCounterFromNotification with id=\(id) thai=\(thaiWord ?? "nil")")
+                print("➡️ Routing to Counter via AppRouter id=\(id) thai=\(thaiWord ?? "nil")")
                 #endif
-                let payload: [String: Any] = [
-                    "id": id,
-                    "thai": thaiWord as Any
-                ]
-                NotificationCenter.default.post(name: .openCounterFromNotification, object: payload)
+                AppRouter.shared.openCounter(id: id)
             }
         }
         completionHandler()

@@ -29,6 +29,7 @@ struct NotificationBellButton: View {
 
 struct NotificationBellToolbar: ViewModifier {
     @State private var showNotifications = false
+    @ObservedObject private var router = AppRouter.shared
 
     func body(content: Content) -> some View {
         content
@@ -36,7 +37,7 @@ struct NotificationBellToolbar: ViewModifier {
                 // Centered + button in the navigation bar
                 ToolbarItem(placement: .principal) {
                     Button(action: {
-                        NotificationCenter.default.post(name: .addWord, object: nil)
+                        router.openAddWord()
                     }) {
                         Image(systemName: "plus")
                             .font(.title2)
@@ -53,18 +54,6 @@ struct NotificationBellToolbar: ViewModifier {
             }
             .fullScreenCover(isPresented: $showNotifications) {
                 NotificationListView()
-            }
-            // When the notifications screen is dismissed, open any pending deep link target
-            .onChange(of: showNotifications) { _, isPresented in
-                if isPresented == false {
-                    if let (id, thai) = DeepLinkStore.consume() {
-                        let payload: [String: Any] = [
-                            "id": id,
-                            "thai": thai as Any
-                        ]
-                        NotificationCenter.default.post(name: .openCounterFromNotification, object: payload)
-                    }
-                }
             }
     }
 }

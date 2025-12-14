@@ -206,10 +206,7 @@ class NotificationEngine: ObservableObject {
     }
 }
 
-// Routing event to open a specific vocab's counter from notifications
-extension Notification.Name {
-    static let openCounterFromNotification = Notification.Name("openCounterFromNotification")
-}
+// (Removed NotificationCenter-based routing; we now route via AppRouter directly)
 
 // MARK: - Notification View
 
@@ -247,20 +244,10 @@ struct NotificationListView: View {
                                 // Mark delivered and update badge
                                 _ = NotificationEngine.shared.handleNotificationTap(notificationID: notification.id.uuidString)
                                 NotificationEngine.shared.updateBadgeCount()
-                                // Prevent last-vocab auto-restore and ensure existing sheet is closed
-                                UserDefaults.standard.set(true, forKey: "suppressCounterRestoreOnce")
-                                NotificationCenter.default.post(name: .closeCounter, object: nil)
-                                // Persist deep link target to be consumed on list onAppear
-                                DeepLinkStore.store(notification.vocabID, thai: notification.thaiWord)
-                                // Dismiss notifications page first
+                                // Dismiss notifications page first, then route via AppRouter
                                 dismiss()
-                                // After dismissal, also post an open event as a fallback to DeepLink consumption
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                                    let payload: [String: Any] = [
-                                        "id": notification.vocabID,
-                                        "thai": notification.thaiWord
-                                    ]
-                                    NotificationCenter.default.post(name: .openCounterFromNotification, object: payload)
+                                    AppRouter.shared.openCounter(id: notification.vocabID)
                                 }
                             }
                         }

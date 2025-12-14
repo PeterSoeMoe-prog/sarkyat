@@ -240,15 +240,31 @@ func loadCSV() -> [VocabularyEntry] {
     }
     let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
     guard lines.count > 1 else { return [] } // must have header + at least one row
+
+    let header = lines[0].lowercased()
+    let hasIDFirst = header.hasPrefix("id,")
+
     var entries: [VocabularyEntry] = []
+    entries.reserveCapacity(lines.count - 1)
     for line in lines.dropFirst() { // skip header
         let cols = line.components(separatedBy: ",")
-        if cols.count >= 4 {
-            let status = VocabularyStatus(rawValue: cols[3].capitalized) ?? .queue
-            let count = Int(cols[2]) ?? 0
-            let burmese = cols[1].isEmpty ? nil : cols[1]
+        if hasIDFirst {
+            guard cols.count >= 6 else { continue }
+            let id = UUID(uuidString: cols[0]) ?? UUID()
+            let thai = cols[1]
+            let burmese = cols[2].isEmpty ? nil : cols[2]
+            let count = Int(cols[3]) ?? 0
+            let status = VocabularyStatus(rawValue: cols[4].capitalized) ?? .queue
+            let category = cols[5].isEmpty ? nil : cols[5]
+            entries.append(VocabularyEntry(id: id, thai: thai, burmese: burmese, count: count, status: status, category: category))
+        } else {
+            guard cols.count >= 4 else { continue }
+            let thai = cols[0]
+            let burmese = cols.count > 1 && !cols[1].isEmpty ? cols[1] : nil
+            let count = cols.count > 2 ? (Int(cols[2]) ?? 0) : 0
+            let status = cols.count > 3 ? (VocabularyStatus(rawValue: cols[3].capitalized) ?? .queue) : .queue
             let category = cols.count > 4 ? (cols[4].isEmpty ? nil : cols[4]) : nil
-            entries.append(VocabularyEntry(thai: cols[0], burmese: burmese, count: count, status: status, category: category))
+            entries.append(VocabularyEntry(thai: thai, burmese: burmese, count: count, status: status, category: category))
         }
     }
     return entries
@@ -257,7 +273,12 @@ func loadCSV() -> [VocabularyEntry] {
 struct ContentView: View {
 
     // MARK: - State Variables
-    @State private var items: [VocabularyEntry] = []
+    @EnvironmentObject private var vocabStore: VocabStore
+    @EnvironmentObject private var router: AppRouter
+    private var items: [VocabularyEntry] { vocabStore.items }
+    private var itemsBinding: Binding<[VocabularyEntry]> {
+        Binding(get: { vocabStore.items }, set: { vocabStore.setItems($0) })
+    }
     @State private var filteredItems: [VocabularyEntry] = []
     @State private var showBurmeseForID: UUID? = nil
     @State private var selectedStatus: VocabularyStatus? = nil
@@ -268,13 +289,13 @@ struct ContentView: View {
     @State private var showAddSheet = false
     @State private var showSettingsSheet = false
     @State private var editingItem: VocabularyEntry? = nil
+    @State private var counterItem: VocabularyEntry? = nil
     @State private var showThaiPrimary = true
     @State private var sortByCountAsc = true
     // Show Daily Quiz from bottom cluster
     @State private var showDailyQuiz: Bool = false
     // Global TTS player for this screen
     @StateObject private var ttsPlayer = TTSQueuePlayer()
-    @State private var goHome = false
     @State private var showCategories = false
     // Open a specific category page pushed from CounterView
     @State private var openCategoryFromCounter: Bool = false
@@ -353,64 +374,11 @@ struct ContentView: View {
                     autoOpenCounterIfNeeded()
                 }
                 .withNotificationBell()
-                
-                .navigationDestination(isPresented: $goHome) {
-                   
-                    
-                    IntroView(totalCount: totalCount,
-                              vocabCount: items.count,
-                              queueCount: items.filter { $0.status == .queue }.count,
-                              drillCount: items.filter { $0.status == .drill }.count,
-                              readyCount: items.filter { $0.status == .ready }.count) // Pass items.count here
-                    
-                    
-                }
                 .navigationDestination(isPresented: $showCategories) {
                     VocabCategoryView()
                 }
                 .navigationDestination(isPresented: $openCategoryFromCounter) {
-                    CategoryListView(items: $items, category: categoryToOpen)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .addWord)) { _ in
-                    showAddSheet = true
-                    playTapSound()
-                }
-                .toolbar {
-                
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .homeAction)) { _ in
-                    @AppStorage("sessionPaused") var sessionPaused: Bool = false
-                    sessionPaused = true // prevent auto-resume on IntroView
-                    goHome = true
-                    playTapSound()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
-                    showSettingsSheet = true
-                    playTapSound()
-                }
-                // Receive request from CounterView to open a full-page category list
-                .onReceive(NotificationCenter.default.publisher(for: .openCategoryList)) { note in
-                    if let cat = note.object as? String {
-                        categoryToOpen = cat
-                        openCategoryFromCounter = true
-                    }
-                }
-                // Deep-link: forward notification routing to open the specific CounterView
-                .onReceive(NotificationCenter.default.publisher(for: .openCounterFromNotification)) { note in
-                    // Suppress any automatic resume/restore and mark as handled
-                    UserDefaults.standard.set(true, forKey: "suppressCounterRestoreOnce")
-                    didAutoOpen = true
-                    // Forward entire payload (UUID or [String: Any]) so VocabularyListView can fall back to Thai match
-                    NotificationCenter.default.post(name: .openCounter, object: note.object)
-                }
-                // Note: DeepLinkStore is consumed only by VocabularyListView to avoid racing subscriptions
-                // When coming from IntroView's Search tap, auto-activate search box
-                .onReceive(NotificationCenter.default.publisher(for: Notification.Name("activateSearch"))) { _ in
-                    DispatchQueue.main.async {
-                        // Ensure the search UI is visible before attempting to focus it
-                        showSearchBox = true
-                        activateSearchNow = true
-                    }
+                    CategoryListView(items: itemsBinding, category: categoryToOpen)
                 }
                 .sheet(isPresented: $showAddSheet) {
                     AddEditWordSheet(
@@ -418,7 +386,7 @@ struct ContentView: View {
                         item: .constant(VocabularyEntry(thai: newThai, burmese: newBurmese.isEmpty ? nil : newBurmese, count: Int(newCount) ?? 0, status: newStatus)), // Pass initial values
                         existingCategories: uniqueCategories,
                          onSave: { newItem in
-                            items.insert(newItem, at: 0)
+                            vocabStore.upsert(newItem)
                             resetNewWordFields()
                             showAddSheet = false
                             playTapSound()
@@ -432,14 +400,30 @@ struct ContentView: View {
                 .sheet(isPresented: $showSettingsSheet) {
                     SettingsView()
                 }
-                .sheet(isPresented: $showDailyQuiz) {
+                .fullScreenCover(isPresented: $showDailyQuiz, onDismiss: {
+                    if case .dailyQuiz = router.sheet {
+                        router.dismissSheet()
+                    }
+                }) {
                     DailyQuizView()
                 }
+                .sheet(item: $counterItem, onDismiss: {
+                    counterItem = nil
+                    if case .counter = router.sheet {
+                        router.dismissSheet()
+                    }
+                }) { item in
+                    if let binding = vocabStore.binding(for: item.id) {
+                        CounterView(item: binding, allItems: itemsBinding, totalVocabCount: items.count)
+                    } else {
+                        Text("Error loading item")
+                    }
+                }
                 .sheet(item: $editingItem) { item in
-                    if let idx = items.firstIndex(where: { $0.id == item.id }) {
+                    if let binding = vocabStore.binding(for: item.id) {
                         AddEditWordSheet(
                             isAdding: false,
-                            item: $items[idx],
+                            item: binding,
                             onSave: { _ in
                                 editingItem = nil
                                 playTapSound()
@@ -455,10 +439,8 @@ struct ContentView: View {
                 }
                 .onAppear(perform: setupInitialState)
                 
-                .onChange(of: items) {
+                .onChange(of: vocabStore.items) { _, _ in
                     filterItems()
-                    saveItems()
-                    writeItemsToCSV()
                 }
                 .onChange(of: searchText) {
                     // Debounce to reduce redundant filtering while typing
@@ -467,14 +449,41 @@ struct ContentView: View {
                     searchDebounce = work
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .nextVocabulary)) { _ in
-                    // Only handle nextVocabulary if we're NOT in a category-specific context
-                    guard selectedCategory == nil else { return }
+                .onChange(of: router.shouldActivateSearch) { _, newValue in
+                    guard newValue else { return }
+                    showSearchBox = true
+                    activateSearchNow = true
+                    router.shouldActivateSearch = false
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .editVocabularyEntry)) { notification in
-                    if let id = notification.object as? UUID,
-                       let item = items.first(where: { $0.id == id }) {
-                        editingItem = item
+                .onChange(of: router.categoryToOpen) { _, newValue in
+                    guard let cat = newValue else { return }
+                    categoryToOpen = cat
+                    openCategoryFromCounter = true
+                    router.categoryToOpen = nil
+                }
+                .onChange(of: router.sheet) { _, newValue in
+                    showSettingsSheet = false
+                    showAddSheet = false
+                    showDailyQuiz = false
+                    editingItem = nil
+                    counterItem = nil
+                    switch newValue {
+                    case .none:
+                        break
+                    case .settings:
+                        showSettingsSheet = true
+                    case .addWord:
+                        showAddSheet = true
+                    case .dailyQuiz:
+                        showDailyQuiz = true
+                    case .editWord(let id):
+                        if let item = items.first(where: { $0.id == id }) {
+                            editingItem = item
+                        }
+                    case .counter(let id):
+                        if let item = items.first(where: { $0.id == id }) {
+                            counterItem = item
+                        }
                     }
                 }
                 .alert("Error", isPresented: $showingAlert) {
@@ -507,8 +516,7 @@ struct ContentView: View {
                                 if String(data: data, encoding: .utf8) != nil {
                                     let importedItems: [VocabularyEntry] = [] // CSV import disabled
                                     if !importedItems.isEmpty {
-                                        items = importedItems
-                                        saveItems()
+                                        vocabStore.setItems(importedItems)
                                         // alert disabled
                                         showingAlert = true
                                     } else {
@@ -537,12 +545,12 @@ struct ContentView: View {
         VStack(spacing: 0) {
             filterButtons
             VocabularyListView(
-                items: $items,
+                items: itemsBinding,
                 filteredItems: $filteredItems,
                 showBurmeseForID: $showBurmeseForID,
                 selectedStatus: $selectedStatus,
                 playTapSound: playTapSound,
-                saveItems: saveItems,
+                saveItems: { vocabStore.saveNow() },
                 showThaiPrimary: showThaiPrimary,
                 plusAction: {
                     showAddSheet = true
@@ -551,7 +559,7 @@ struct ContentView: View {
                 homeAction: {
                     @AppStorage("sessionPaused") var sessionPaused: Bool = false
                     sessionPaused = true // prevent auto-resume on IntroView
-                    goHome = true
+                    router.openIntro()
                     playTapSound()
                 },
                 resumeAction: {
@@ -588,7 +596,7 @@ struct ContentView: View {
                             homeAction: {
                                 @AppStorage("sessionPaused") var sessionPaused: Bool = false
                                 sessionPaused = true // prevent auto-resume on IntroView
-                                goHome = true
+                                router.openIntro()
                                 playTapSound()
                             }
                         )
@@ -785,9 +793,9 @@ struct ContentView: View {
         if let uuid = UUID(uuidString: storedLastVocabID),
            let last = items.first(where: { $0.id == uuid }),
            last.status != .ready {
-            NotificationCenter.default.post(name: .openCounter, object: uuid)
+            router.openCounter(id: uuid)
         } else {
-            NotificationCenter.default.post(name: .nextVocabulary, object: nil)
+            router.openContent()
         }
     }
 
@@ -797,62 +805,30 @@ struct ContentView: View {
     }
 
     private func setupInitialState() {
-        loadItemsIntoState() // Renamed for clarity
         // Reset transient UI states to avoid unwanted sheets on launch
         isImporting = false
         showingShare = false
+
+        if items.contains(where: { $0.status == .queue }) {
+            currentOption = .queue
+        } else if items.contains(where: { $0.status == .drill }) {
+            currentOption = .drill
+        } else if items.contains(where: { $0.status == .ready }) {
+            currentOption = .ready
+        } else {
+            currentOption = .all
+        }
         selectedStatus = currentOption.status
         filterItems()
-        
-        // Set up notification observers
-        NotificationCenter.default.addObserver(forName: Notification.Name("showImportPicker"), object: nil, queue: .main) { _ in
-            isImporting = true
-            // Ensure share sheet doesn't appear after import
-            showingShare = false
-            shareURL = nil
-            playTapSound()
-        }
-        // Observer for Export CSV action triggered from CollapsibleSearchBox
-        NotificationCenter.default.addObserver(forName: Notification.Name("exportCSV"), object: nil, queue: .main) { _ in
-            do {
-                let url = try CSVManager.makeTempCSV(from: items)
-                shareURL = url
-                showingShare = true
-            } catch {
-                alertMessage = "Failed to create CSV: \(error.localizedDescription)"
-                showingAlert = true
-            }
-            playTapSound()
-        }
-        // Observer for Clean action triggered from CollapsibleSearchBox
-        NotificationCenter.default.addObserver(forName: Notification.Name("cleanDuplicates"), object: nil, queue: .main) { _ in
-            mergeDuplicateEntries()
-            alertMessage = "✅ Cleaned duplicate entries."
-            showingAlert = true
-            playTapSound()
+
+        if case .dailyQuiz = router.sheet {
+            showDailyQuiz = true
         }
     }
 
     private func loadItemsIntoState() { // This function now focuses purely on loading into @State items
-        if let savedData = UserDefaults.standard.data(forKey: "vocab_items"),
-           let decoded = try? JSONDecoder().decode([VocabularyEntry].self, from: savedData),
-           !decoded.isEmpty {
-            self.items = decoded
-            print("Loaded items from UserDefaults. Count: \(self.items.count)")
-            // Run a one-off clean-up to remove any historic duplicates
-            saveItems()
-            return
-        }
-
-        // If no saved data, attempt to load from CSV (documents or bundle)
-        let loadedItems = loadCSV() // Calls the global, improved loadCSV
-        if !loadedItems.isEmpty {
-            self.items = loadedItems
-            saveItems() // Save loaded CSV to UserDefaults for persistence
-            print("Loaded initial items from CSV (Documents/Bundle).")
-        } else {
-            print("No initial items found in UserDefaults or CSV.")
-        }
+        vocabStore.reloadFromDisk()
+        filterItems()
     }
 
     /// Auto-open CounterView if a study session is in progress.
@@ -865,8 +841,12 @@ struct ContentView: View {
             effective = max(0, remainingSeconds - elapsed)
         }
         if !sessionPaused && effective > 0 {
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .nextVocabulary, object: nil)
+            // Navigate directly without NotificationCenter.
+            if let uuid = UUID(uuidString: storedLastVocabID),
+               items.contains(where: { $0.id == uuid }) {
+                router.openCounter(id: uuid)
+            } else if let next = items.first(where: { $0.status != .ready }) ?? items.first {
+                router.openCounter(id: next.id)
             }
         }
         didAutoOpen = true
@@ -874,45 +854,16 @@ struct ContentView: View {
 
     // MARK: - Duplicate Cleanup Helper
     private func mergeDuplicateEntries() {
-        // Combine entries with same Thai + category (case-insensitive)
-        var seen: [String: VocabularyEntry] = [:]
-        for entry in items {
-            let key = (entry.thai.lowercased() + "|" + (entry.category ?? "").lowercased())
-            if var existing = seen[key] {
-                // keep higher count and latest status
-                existing.count = max(existing.count, entry.count)
-                existing.status = existing.status == .ready || entry.status == .ready ? .ready : (existing.status == .drill || entry.status == .drill ? .drill : .queue)
-                seen[key] = existing
-            } else {
-                seen[key] = entry
-            }
-        }
-        items = Array(seen.values).sorted { $0.thai < $1.thai }
-        saveItems()        // persist cleaned list
-        writeItemsToCSV()  // update CSV file too
+        vocabStore.cleanDuplicates()
     }
 
     private func saveItems() {
-        // Remove any accidental duplicate IDs while preserving first occurrence order
-        var seen = Set<UUID>()
-        items = items.filter { entry in
-            if seen.contains(entry.id) {
-                return false
-            } else {
-                seen.insert(entry.id)
-                return true
-            }
-        }
-        if let encoded = try? JSONEncoder().encode(items) {
-            UserDefaults.standard.set(encoded, forKey: "vocab_items")
-        } else {
-            print("❌ Failed to encode items for saving.")
-        }
+        vocabStore.saveNow()
     }
 
     private func writeItemsToCSV() {
         // Temporarily disabled heavy file-I/O. Replace with new implementation later.
-        CSVManager.exportToDocuments(items)
+        vocabStore.saveNow()
     }
 
     private var uniqueCategories: [String] {
@@ -1042,7 +993,7 @@ struct ContentView: View {
 
     // This function seems to be for clearing the list and CSV, ensure it's intended.
     func deleteAllEntries() {
-        items.removeAll()
+        vocabStore.setItems([])
         // Legacy CSV file clearing disabled
         // filterItems() and saveItems() are handled automatically by onChange(of: items)
     }
@@ -1059,6 +1010,7 @@ struct ContentView: View {
 
 struct AddEditWordSheet: View {
     @Environment(\.dismiss) var dismiss // For dismissing the sheet
+    @EnvironmentObject private var router: AppRouter
     let isAdding: Bool
     @Binding var item: VocabularyEntry // Binding allows direct modification of the original item
     let onSave: (VocabularyEntry) -> Void
@@ -1256,8 +1208,10 @@ struct AddEditWordSheet: View {
         }
         onSave(finalItem)
         if !isAdding {
-            print("🧪 AddEditWordSheet posting .openCounter for id=\(finalItem.id), count=\(finalItem.count)")
-            NotificationCenter.default.post(name: .openCounter, object: finalItem.id)
+            let idToOpen = finalItem.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                router.openCounter(id: idToOpen)
+            }
         } // Pass the final item to the ContentView's save closure
         dismiss()
     }

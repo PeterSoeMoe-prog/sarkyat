@@ -5,6 +5,50 @@ import SwiftUI
 /// All former CSV-related functions should delegate to these no-op helpers.
 /// Later we will replace the bodies with a clean implementation.
 enum CSVManager {
+    static func loadFromDocuments() -> [VocabularyEntry] {
+        let fileManager = FileManager.default
+        let docsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let fileURL = docsURL.appendingPathComponent("vocab.csv")
+
+        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+            return []
+        }
+        let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
+        guard lines.count > 1 else { return [] }
+
+        // Supports both legacy format:
+        // thai,burmese,count,status,category
+        // and new format:
+        // id,thai,burmese,count,status,category
+        let header = lines[0].lowercased()
+        let hasIDFirst = header.hasPrefix("id,")
+
+        var entries: [VocabularyEntry] = []
+        entries.reserveCapacity(lines.count - 1)
+        for line in lines.dropFirst() {
+            let cols = line.components(separatedBy: ",")
+            if hasIDFirst {
+                guard cols.count >= 6 else { continue }
+                let id = UUID(uuidString: cols[0]) ?? UUID()
+                let thai = cols[1]
+                let burmese = cols[2].isEmpty ? nil : cols[2]
+                let count = Int(cols[3]) ?? 0
+                let status = VocabularyStatus(rawValue: cols[4].capitalized) ?? .queue
+                let category = cols[5].isEmpty ? nil : cols[5]
+                entries.append(VocabularyEntry(id: id, thai: thai, burmese: burmese, count: count, status: status, category: category))
+            } else {
+                guard cols.count >= 4 else { continue }
+                let thai = cols[0]
+                let burmese = cols.count > 1 && !cols[1].isEmpty ? cols[1] : nil
+                let count = cols.count > 2 ? (Int(cols[2]) ?? 0) : 0
+                let status = cols.count > 3 ? (VocabularyStatus(rawValue: cols[3].capitalized) ?? .queue) : .queue
+                let category = cols.count > 4 ? (cols[4].isEmpty ? nil : cols[4]) : nil
+                entries.append(VocabularyEntry(thai: thai, burmese: burmese, count: count, status: status, category: category))
+            }
+        }
+        return entries
+    }
+
     /// Replace previous `loadCSV()` or manual import.
     static func importFromDocuments() {
         // no-op for now
@@ -14,14 +58,15 @@ enum CSVManager {
     /// in sync with the in-memory vocabulary list. If the write fails we simply
     /// log the error – the app will continue to function using UserDefaults.
     static func exportToDocuments(_ items: [VocabularyEntry]) {
-        let header = "thai,burmese,count,status,category\n"
+        let header = "id,thai,burmese,count,status,category\n"
         let csvLines = items.map { item -> String in
             // Ensure we do not break the CSV structure with stray commas or line-breaks.
             let sanitize: (String) -> String = { $0.replacingOccurrences(of: ",", with: " ").replacingOccurrences(of: "\n", with: " ") }
+            let id = item.id.uuidString
             let thai = sanitize(item.thai)
             let burmese = sanitize(item.burmese ?? "")
             let category = sanitize(item.category ?? "")
-            return "\(thai),\(burmese),\(item.count),\(item.status.rawValue.lowercased()),\(category)"
+            return "\(id),\(thai),\(burmese),\(item.count),\(item.status.rawValue.lowercased()),\(category)"
         }
         let csvString = header + csvLines.joined(separator: "\n")
 
@@ -29,7 +74,14 @@ enum CSVManager {
         let docsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let fileURL = docsURL.appendingPathComponent("vocab.csv")
         do {
-            try csvString.write(to: fileURL, atomically: true, encoding: .utf8)
+            // Write atomically via a temporary file, then replace.
+            let tmpURL = docsURL.appendingPathComponent("vocab.csv.tmp")
+            try csvString.write(to: tmpURL, atomically: true, encoding: .utf8)
+            if fileManager.fileExists(atPath: fileURL.path) {
+                _ = try fileManager.replaceItemAt(fileURL, withItemAt: tmpURL)
+            } else {
+                try fileManager.moveItem(at: tmpURL, to: fileURL)
+            }
         } catch {
             print("❌ Failed to write vocab.csv: \(error.localizedDescription)")
         }
@@ -45,11 +97,14 @@ enum CSVManager {
     ///
     /// - Throws: Propagates any file-system write errors.
     static func makeTempCSV(from items: [VocabularyEntry]) throws -> URL {
-        let header = "thai,burmese,count,status,category\n"
+        let header = "id,thai,burmese,count,status,category\n"
+        let sanitize: (String) -> String = { $0.replacingOccurrences(of: ",", with: " ").replacingOccurrences(of: "\n", with: " ") }
         let csvLines = items.map { item -> String in
-            let burmeseText = item.burmese?.replacingOccurrences(of: ",", with: " ") ?? ""
-            let categoryText = item.category?.replacingOccurrences(of: ",", with: " ") ?? ""
-            return "\(item.thai),\(burmeseText),\(item.count),\(item.status.rawValue.lowercased()),\(categoryText)"
+            let id = item.id.uuidString
+            let thai = sanitize(item.thai)
+            let burmese = sanitize(item.burmese ?? "")
+            let category = sanitize(item.category ?? "")
+            return "\(id),\(thai),\(burmese),\(item.count),\(item.status.rawValue.lowercased()),\(category)"
         }
         let csvString = header + csvLines.joined(separator: "\n")
 

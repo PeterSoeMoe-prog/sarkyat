@@ -67,17 +67,9 @@ private struct ReorderDropDelegate: DropDelegate {
     }
 }
 
-// Notification for reopening CounterView after editing
-extension Notification.Name {
-    static let openCounter = Notification.Name("openCounter")
-    static let play10X = Notification.Name("play10X")
-    static let playRecent10 = Notification.Name("playRecent10")
-    static let homeAction = Notification.Name("homeAction")
-    static let addWord = Notification.Name("addWord")
-}
-
 struct VocabularyListView: View {
     @EnvironmentObject var ttsGlobal: TTSQueuePlayer
+    @EnvironmentObject private var router: AppRouter
     @Binding var items: [VocabularyEntry]
     @Binding var filteredItems: [VocabularyEntry]
     @Binding var showBurmeseForID: UUID?
@@ -97,41 +89,15 @@ struct VocabularyListView: View {
     // Controls whether to show the small category caption under the primary line
     var showCategoryLabel: Bool = true
 
-    @State private var counterItem: VocabularyEntry?      // drives the sheet
-    @State private var lastCounterID: UUID? = nil        // tracks previously shown vocab
-    @State private var historyIDs: [UUID] = []           // navigation history
-    @State private var historyIndex: Int = -1
-    @State private var lastCategory: String? = nil
-    @AppStorage("lastCategory") private var storedLastCategory: String = ""
     @AppStorage("lastVocabID") private var storedLastVocabID: String = ""
-    @State private var selectedDetent: PresentationDetent = .large
     @State private var draggingItem: VocabularyEntry? = nil
     @State private var draggingItemID: UUID? = nil
     @AppStorage("sessionPaused") private var sessionPaused: Bool = false
     @State private var showCompletionAlert = false
     @State private var isLoading: Bool = true
-    @State private var queuedEditID: UUID? = nil
-    @State private var queuedEditThai: String? = nil
     @State private var saveDebounce: DispatchWorkItem? = nil
-    // Pending target when we need to close current CounterView first
-    @State private var pendingTargetID: UUID? = nil
-    @State private var pendingTargetThai: String? = nil
-    // Guard against immediately reopening the same CounterView right after dismissal
-    @State private var lastDismissedID: UUID? = nil
-    @State private var lastDismissedTime: Date? = nil
 
     // MARK: – Helpers
-    private func normalized(_ s: String) -> String {
-        s.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: .current)
-    }
-    // Returns true if the given id matches the most recently dismissed CounterView
-    // within a short cooldown window to avoid ghost reopens of the same vocab.
-    private func shouldSuppressOpen(for id: UUID?) -> Bool {
-        guard let id, let lastID = lastDismissedID, let lastTime = lastDismissedTime else { return false }
-        // 1 second cooldown window after dismissal
-        let interval = Date().timeIntervalSince(lastTime)
-        return id == lastID && interval < 1.0
-    }
     private func color(for status: VocabularyStatus) -> Color {
         switch status {
         case .queue: return Color.red.opacity(0.5)
@@ -140,7 +106,6 @@ struct VocabularyListView: View {
         }
     }
 
-    // Ensure consistent visual weight between Thai and Burmese (Myanmar) scripts
     private func isMyanmarScript(_ s: String) -> Bool {
         for scalar in s.unicodeScalars {
             switch scalar.value {
@@ -159,9 +124,6 @@ struct VocabularyListView: View {
 
     // MARK: – Body
     var body: some View {
-        // Listen for "Next" events from CounterView
-        let _ = Self._printChanges()
-
         ZStack {
             if isLoading {
                 ProgressView("Loading vocabulary...")
@@ -176,7 +138,7 @@ struct VocabularyListView: View {
                                     .onTapGesture {
                                         ttsGlobal.pause()
                                         if !isLoading && items.indices.contains(realIndex) {
-                                            counterItem = items[realIndex]
+                                            router.openCounter(id: items[realIndex].id)
                                         }
                                     }
                             }
@@ -190,7 +152,7 @@ struct VocabularyListView: View {
                                     .onTapGesture {
                                         ttsGlobal.pause()
                                         if !isLoading && items.indices.contains(realIndex) {
-                                            counterItem = items[realIndex]
+                                            router.openCounter(id: items[realIndex].id)
                                         }
                                     }
                             }
@@ -203,58 +165,6 @@ struct VocabularyListView: View {
             }
         }
         .onAppear {
-            // Prefer deep link target FIRST to avoid showing previous vocab momentarily
-            var handledDeepLink = false
-            if let (targetID, targetThai) = DeepLinkStore.consume() {
-                if let item = items.first(where: { $0.id == targetID }) {
-                    // Open exact target
-                    let target = item
-                    counterItem = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        counterItem = target
-                    }
-                    handledDeepLink = true
-                } else if let thai = targetThai {
-                    let nThai = normalized(thai)
-                    if let match = items.first(where: { normalized($0.thai) == nThai }) {
-                        let target = match
-                        counterItem = nil
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            counterItem = target
-                        }
-                        handledDeepLink = true
-                    } else {
-                        // Items not yet loaded or target not found; process later
-                        queuedEditID = targetID
-                        queuedEditThai = targetThai
-                        processQueuedEditIfPossible()
-                        handledDeepLink = true
-                    }
-                } else {
-                    // Items not yet loaded or target not found; process later
-                    queuedEditID = targetID
-                    queuedEditThai = targetThai
-                    processQueuedEditIfPossible()
-                    handledDeepLink = true
-                }
-            }
-
-            // Restore last category from storage
-            if !storedLastCategory.trimmingCharacters(in: .whitespaces).isEmpty {
-                lastCategory = storedLastCategory
-            }
-            // Restore last vocab only if no deep link was handled and not ready
-            let suppressRestoreOnce = UserDefaults.standard.bool(forKey: "suppressCounterRestoreOnce")
-            if suppressRestoreOnce {
-                // Consume the one-shot suppress toggle
-                UserDefaults.standard.set(false, forKey: "suppressCounterRestoreOnce")
-            }
-            if !handledDeepLink && !suppressRestoreOnce,
-               let uuid = UUID(uuidString: storedLastVocabID),
-               !shouldSuppressOpen(for: uuid),
-               let item = items.first(where: { $0.id == uuid && $0.status != .ready }) {
-                counterItem = item
-            }
             // Simulate loading delay if items are empty (replace with your real loading logic)
             if items.isEmpty {
                 isLoading = true
@@ -264,208 +174,13 @@ struct VocabularyListView: View {
             } else {
                 isLoading = false
             }
-            // Deep link (if any) already handled above
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .nextVocabulary)) { _ in
-            // Debug: Check if we have category context
-            print("🔍 VocabularyListView: nextVocabulary received, lastCategory = \(lastCategory ?? "nil")")
-            
-            // Only handle nextVocabulary if we have a specific category context
-            guard let cat = lastCategory else { 
-                print("🔍 VocabularyListView: No category context, skipping")
-                return 
-            }
-            // 1. If we have forward history, move forward
-            if historyIndex + 1 < historyIDs.count {
-                historyIndex += 1
-                let nextID = historyIDs[historyIndex]
-                if let nextItem = items.first(where: { $0.id == nextID }) {
-                    counterItem = nextItem
-                    return
-                }
-            }
-            // 2. Prefer a new vocab from the same category if possible (drill -> queue -> ready)
-            // Check if the current category is fully completed first
-            print("🔍 VocabularyListView: Searching in category '\(cat)'")
-            let categoryItems = items.filter { $0.category == cat }
-            print("🔍 VocabularyListView: Found \(categoryItems.count) items in category '\(cat)'")
-            
-            if true { // We already have cat from guard above
-                // categoryItems already defined above
-                let allInCategoryAreReady = !categoryItems.isEmpty && categoryItems.allSatisfy { $0.status == .ready }
-
-                if allInCategoryAreReady {
-                    // Find the next category with words that are not 'ready'
-                    let allCats = Array(Set(items.compactMap { $0.category })).sorted()
-                    if let currentIndex = allCats.firstIndex(of: cat) {
-                        for i in 1..<allCats.count {
-                            let nextCatIndex = (currentIndex + i) % allCats.count
-                            let nextCategory = allCats[nextCatIndex]
-                            
-                            // Check if this next category has any non-ready items
-                            if items.contains(where: { $0.category == nextCategory && $0.status != .ready }) {
-                                // Found a new category, now find a word in it
-                                let drill = items.first { $0.category == nextCategory && $0.status == .drill && !historyIDs.contains($0.id) }
-                                let queue = items.first { $0.category == nextCategory && $0.status == .queue && !historyIDs.contains($0.id) }
-                                
-                                if let candidate = drill ?? queue {
-                                    counterItem = candidate
-                                    return // Exit after finding the new word
-                                }
-                            }
-                        }
-                    }
-                    // If no other category has words, fall through to global search which will show completion alert if needed
-                }
-
-                // Same category priority by status
-                let sameDrill = items.filter { $0.category == cat && $0.status == .drill && !historyIDs.contains($0.id) }
-                if let candidate = sameDrill.first {
-                    counterItem = candidate
-                    return
-                }
-                let sameQueue = items.filter { $0.category == cat && $0.status == .queue && !historyIDs.contains($0.id) }
-                if let candidate = sameQueue.first {
-                    counterItem = candidate
-                    return
-                }
-                // Skip ready items in same category - they should not be selected again
-                // Only select ready items if ALL items in category are ready (handled above)
-            }
-            // 3. Otherwise, fallback to global status priority: drill → queue only (no ready items)
-            let ordered = items.filter { $0.status == .drill } +
-                          items.filter { $0.status == .queue }
-            if let newItem = ordered.first(where: { !historyIDs.contains($0.id) }) {
-                counterItem = newItem
-            } else {
-                showCompletionAlert = true
-            }
-        }
-        // Explicitly close any open CounterView before opening a new one (e.g., from notifications)
-        .onReceive(NotificationCenter.default.publisher(for: .closeCounter)) { _ in
-            if counterItem != nil {
-                counterItem = nil
-            }
-            // Clear stored last ID to avoid auto-restore while switching
-            storedLastVocabID = ""
-        }
-        // Sync navigation history when the displayed vocab changes
-        .onChange(of: counterItem) { _, newItem in
-            print("🧪 VocabularyListView: counterItem changed to \(newItem?.id.uuidString ?? "nil")")
-            guard let item = newItem else { return }
-            lastCounterID = item.id
-            lastCategory = item.category
-                 // Persist category
-                 storedLastCategory = item.category ?? ""
-                 storedLastVocabID = item.id.uuidString
-            if let existingIdx = historyIDs.firstIndex(of: item.id) {
-                // Navigated within history – just update index
-                historyIndex = existingIdx
-            } else {
-                // New vocab – append and set index to end
-                historyIDs.append(item.id)
-                historyIndex = historyIDs.count - 1
-            }
-        }
-        // Handle Prev navigation
-        .onReceive(NotificationCenter.default.publisher(for: .prevVocabulary)) { _ in
-            guard historyIndex > 0 else { return }
-            historyIndex -= 1
-            let prevID = historyIDs[historyIndex]
-            if let prevItem = items.first(where: { $0.id == prevID }) {
-                counterItem = prevItem
-            }
-        }
-        // Open specific CounterView after editing or deep link
-        .onReceive(NotificationCenter.default.publisher(for: .openCounter)) { notification in
-            print("🧪 VocabularyListView: .openCounter received object = \(String(describing: notification.object))")
-            var resolvedID: UUID? = nil
-            var fallbackThai: String? = nil
-            if let id = notification.object as? UUID {
-                resolvedID = id
-            } else if let dict = notification.object as? [String: Any] {
-                if let id = dict["id"] as? UUID { resolvedID = id }
-                if let thai = dict["thai"] as? String { fallbackThai = thai }
-            }
-            print("🧪 VocabularyListView: resolvedID=\(String(describing: resolvedID)), fallbackThai=\(fallbackThai ?? "nil")")
-            // If a sheet is currently showing, queue and close first to avoid SwiftUI race
-            if counterItem != nil {
-                pendingTargetID = resolvedID
-                pendingTargetThai = fallbackThai
-                print("🧪 VocabularyListView: CounterView already open, queuing target id=\(String(describing: resolvedID)), thai=\(fallbackThai ?? "nil")")
-                counterItem = nil
-                return
-            }
-            // Respect recent-dismiss guard to avoid ghost reopens of the same vocab
-            if shouldSuppressOpen(for: resolvedID) {
-                print("🧪 VocabularyListView: suppressing .openCounter for id=\(String(describing: resolvedID)) due to recent dismissal")
-                return
-            }
-            // Resolve target by ID first, then by Thai text
-            var target: VocabularyEntry? = nil
-            if let id = resolvedID {
-                target = items.first(where: { $0.id == id })
-            }
-            if target == nil, let thai = fallbackThai {
-                let nThai = normalized(thai)
-                target = items.first(where: { normalized($0.thai) == nThai })
-            }
-            if let t = target {
-                print("🧪 VocabularyListView: will open CounterView for id=\(t.id), count=\(t.count)")
-                // Force a transition so SwiftUI presents the sheet reliably
-                counterItem = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-                    counterItem = t
-                }
-            } else if let id = resolvedID {
-                // Not loaded yet; queue for later processing
-                queuedEditID = id
-                queuedEditThai = fallbackThai
-                print("🧪 VocabularyListView: queued target id=\(id), thai=\(fallbackThai ?? "nil") for later")
-            }
-        }
-        // Try to process queued edit whenever items or loading state changes
-        .onChange(of: isLoading) { _, _ in
-            processQueuedEditIfPossible()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .play10X)) { _ in
-            play10X()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .playRecent10)) { _ in
-            playRecent10()
         }
         .onChange(of: items) { _, _ in
-            processQueuedEditIfPossible()
+            // persist the last vocab if it still exists
+            if let uuid = UUID(uuidString: storedLastVocabID), !items.contains(where: { $0.id == uuid }) {
+                storedLastVocabID = ""
+            }
             scheduleSave()
-        }
-        .sheet(item: $counterItem) { entry in
-            let itemBinding: Binding<VocabularyEntry> = {
-                if let idx = items.firstIndex(where: { $0.id == entry.id }) {
-                    return $items[idx]
-                } else {
-                    // Fallback binding to avoid "Error loading item" flash
-                    return .constant(entry)
-                }
-            }()
-            CounterView(item: itemBinding,
-                        allItems: $items,
-                        totalVocabCount: totalVocabCount)
-                .presentationDetents([.large], selection: $selectedDetent)
-                .interactiveDismissDisabled(false)
-                .presentationDragIndicator(.visible)
-                .onDisappear {
-                    print("🧪 VocabularyListView: CounterView dismissed for id=\(entry.id), count=\(entry.count) at \(Date())")
-                    // Force a save when closing the sheet to avoid losing recent edits
-                    scheduleSave()
-                    // Clear the persisted last-vocab ID so ContentView/auto-resume logic
-                    // won’t re-open the same CounterView right after dismissal.
-                    storedLastVocabID = ""
-                    // Record which vocab was just dismissed and when, so that
-                    // delayed notifications/deep-links cannot immediately reopen
-                    // the same CounterView with stale state.
-                    lastDismissedID = entry.id
-                    lastDismissedTime = Date()
-                }
         }
     }
 
@@ -497,41 +212,6 @@ struct VocabularyListView: View {
         let recentVocabs = recentIDs.compactMap { id in items.first(where: { $0.id == id }) }
         let texts = recentVocabs.prefix(10).map { $0.thai }
         ttsGlobal.play(texts: texts)
-    }
-
-    private func processQueuedEditIfPossible() {
-        guard !isLoading else { return }
-        if let queuedID = queuedEditID, let target = items.first(where: { $0.id == queuedID }) {
-            // Open exact target if found by ID
-            if counterItem?.id != target.id && !shouldSuppressOpen(for: target.id) {
-                counterItem = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    counterItem = target
-                    queuedEditID = nil
-                    queuedEditThai = nil
-                }
-            } else {
-                queuedEditID = nil
-                queuedEditThai = nil
-            }
-            return
-        }
-        if let thai = queuedEditThai {
-            let nThai = normalized(thai)
-            if let match = items.first(where: { normalized($0.thai) == nThai }) {
-                if counterItem?.id != match.id && !shouldSuppressOpen(for: match.id) {
-                    counterItem = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        counterItem = match
-                        queuedEditID = nil
-                        queuedEditThai = nil
-                    }
-                } else {
-                    queuedEditID = nil
-                    queuedEditThai = nil
-                }
-            }
-        }
     }
 
     // Prefer non-ready from same category: drill -> queue; otherwise any non-ready globally
@@ -600,7 +280,7 @@ struct VocabularyListView: View {
             Button("Drill") { updateStatus(for: item.id, to: .drill) }
             Button("Ready") { updateStatus(for: item.id, to: .ready) }
             Button("Edit") {
-                NotificationCenter.default.post(name: .editVocabularyEntry, object: item.id)
+                router.openEdit(id: item.id)
             }
         }
         .if(!allowReorder) { view in
