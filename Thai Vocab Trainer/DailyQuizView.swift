@@ -24,6 +24,8 @@ struct DailyQuizView: View {
     @EnvironmentObject private var router: AppRouter
     @AppStorage("lastVocabID") private var storedLastVocabID: String = ""
 
+    @State private var showDailyStats: Bool = false
+
     init() {
         synthesizer.delegate = speechDelegate
     }
@@ -370,14 +372,7 @@ struct DailyQuizView: View {
                 
                 Button(action: {
                     playTapSound()
-                    dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        router.dismissSheet()
-                        router.openContent()
-                        router.openCategory("")
-                        router.openContent()
-                        router.openSettings()
-                    }
+                    showDailyStats = true
                 }) {
                     Text("See Stats")
                         .font(.title3.bold())
@@ -391,6 +386,9 @@ struct DailyQuizView: View {
                         .shadow(radius: 6)
                 }
                 .padding(.horizontal, 30)
+                .fullScreenCover(isPresented: $showDailyStats) {
+                    DailyStatView()
+                }
                 
                 Button(action: {
                     // Resume the counter/boost session
