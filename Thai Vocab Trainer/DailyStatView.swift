@@ -27,6 +27,11 @@ struct DailyStatView: View {
     @AppStorage("attemptMonthly") private var attemptMonthly: Int = 0
     @AppStorage("correctTotal") private var correctTotal: Int = 0
     @AppStorage("attemptTotal") private var attemptTotal: Int = 0
+    // Quiz completion storage
+    @AppStorage("quizCompletedTotal") private var quizCompletedTotal: Int = 0
+    
+    // Total vocabulary count (stored in AppStorage for persistence)
+    @AppStorage("totalVocabCount") private var totalVocabCount: Int = 0
     
     // MARK: - Body
     var body: some View {
@@ -81,11 +86,33 @@ struct DailyStatView: View {
                                         subText: percentOnlyString(correct: correctTotal, attempts: attemptTotal)
                                     )
                                 }
+                                
+                                HStack(spacing: 12) {
+                                    HeroStatCard(
+                                        title: "Quiz Done",
+                                        value: overallCompletionPercentString(),
+                                        subText: nil
+                                    )
+                                }
+                                Button(action: {
+                                    router.openDailyQuiz()
+                                }) {
+                                    Text("Quiz")
+                                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                                        .foregroundColor(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                .fill(LinearGradient(colors: [Color.blue, Color.purple, Color.pink, Color.orange], startPoint: .leading, endPoint: .trailing))
+                                        )
+                                }
+                                .buttonStyle(PlainButtonStyle())
                             }
                             .padding(20)
                             .background(
                                 RoundedRectangle(cornerRadius: 30, style: .continuous)
-                                    .fill(Color(.secondarySystemBackground))
+                                    .fill(Color(UIColor.secondarySystemBackground))
                             )
                             .padding(.horizontal, 12)
                             .padding(.top, 12)
@@ -111,6 +138,7 @@ struct DailyStatView: View {
         }
         .onAppear { isLoading = false }
     }
+    
     // Helper to render a stat row
     private func statRow(label: String, value: Int) -> some View {
         // Determine platform-safe background color
@@ -169,6 +197,20 @@ struct DailyStatView: View {
     private func percentOnlyString(correct: Int, attempts: Int) -> String {
         let p = accuracyPercent(correct: correct, attempts: attempts)
         return String(format: "%.0f%%", p)
+    }
+    
+    private func overallCompletionPercentString() -> String {
+        let total = totalVocabCount > 0 ? totalVocabCount : 1950
+        guard total > 0 else { return "0%" }
+        // Estimate passed quizzes based on accuracy and 5 items per quiz.
+        // A quiz is considered failed if it has 2+ wrong answers (i.e. <80% in a 5-item quiz).
+        let accPercent = accuracyPercent(correct: correctTotal, attempts: attemptTotal)
+        let wrongAnswers = Int(floor(Double(quizTotalCount) * 5.0 * max(0.0, 1.0 - accPercent / 100.0)))
+        let maxFailedQuizzes = min(quizTotalCount, wrongAnswers / 2)
+        let passedQuizzesEstimate = max(0, quizTotalCount - maxFailedQuizzes)
+        let passedVocabsEstimate = passedQuizzesEstimate * 5
+        let percentage = (Double(passedVocabsEstimate) / Double(total)) * 100.0
+        return String(format: "%.0f%%", percentage)
     }
 
     private var todayDeltaText: String? {
