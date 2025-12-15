@@ -237,19 +237,16 @@ struct IntroView: View {
                 // -------------------------------------------------
                 HStack(spacing: 0) {
                     actionButton(icon: "magnifyingglass.circle.fill", title: "Search")
-                        .frame(maxWidth: .infinity)
                         .onTapGesture {
                             playTapSound()
                             router.openContent(activateSearch: true)
                         }
                     actionButton(icon: "book.fill", title: "All Vocab")
-                        .frame(maxWidth: .infinity)
                         .onTapGesture {
                             playTapSound()
                             router.openContent()
                         }
                     actionButton(icon: "square.grid.2x2.fill", title: "Categories")
-                        .frame(maxWidth: .infinity)
                         .onTapGesture {
                             playTapSound()
                             showCategories = true
@@ -260,9 +257,7 @@ struct IntroView: View {
                     }) {
                         actionButton(icon: "bolt.fill", title: "Daily Quiz")
                     }
-                    .frame(maxWidth: .infinity)
                     actionButton(icon: "chart.bar.fill", title: "Daily Stats")
-                        .frame(maxWidth: .infinity)
                         .onTapGesture {
                             playTapSound()
                             showDailyStats = true
@@ -273,7 +268,6 @@ struct IntroView: View {
                     }) {
                         actionButton(icon: "gearshape.fill", title: "Settings")
                     }
-                    .frame(maxWidth: .infinity)
                 }
                 .foregroundColor(appTheme.primaryTextColor)
                 .font(.title3)
@@ -291,7 +285,7 @@ struct IntroView: View {
          .navigationDestination(isPresented: $showCategories) {
              VocabCategoryView()
          }
-         .sheet(isPresented: $showDailyStats) {
+         .fullScreenCover(isPresented: $showDailyStats) {
              DailyStatView()
          }
          .sheet(
@@ -394,12 +388,15 @@ struct IntroView: View {
 
     // MARK: - Secondary Action Button Helper
     private func actionButton(icon: String, title: String) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 2) {
             Image(systemName: icon)
                 .font(.title2)
             Text(title)
                 .font(.caption2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
+        .frame(width: 58)
     }
 
     private func playTapSound() {

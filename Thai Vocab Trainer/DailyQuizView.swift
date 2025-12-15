@@ -75,7 +75,9 @@ struct DailyQuizView: View {
     @State private var skipNextIndexSpeak: Bool = false
     // Quiz stats storage
     @AppStorage("quizDailyCount") private var quizDailyCount: Int = 0
+    @AppStorage("quizYesterdayCount") private var quizYesterdayCount: Int = 0
     @AppStorage("quizWeeklyCount") private var quizWeeklyCount: Int = 0
+    @AppStorage("quizPrevWeekCount") private var quizPrevWeekCount: Int = 0
     @AppStorage("quizMonthlyCount") private var quizMonthlyCount: Int = 0
     @AppStorage("quizTotalCount") private var quizTotalCount: Int = 0
     @AppStorage("quizLastDate") private var quizLastDate: Double = 0
@@ -221,9 +223,7 @@ struct DailyQuizView: View {
             
             // Thai word card with speaker icon
             VStack(spacing: 12) {
-                Text(question.thai)
-                    .font(.system(size: 48, weight: .bold))
-                    .multilineTextAlignment(.center)
+                ThaiQuestionText(text: question.thai)
                     .padding(.horizontal, 20)
                 
                 Button(action: {
@@ -303,6 +303,38 @@ struct DailyQuizView: View {
         }
         .padding()
         .navigationTitle("Daily Quiz")
+    }
+
+    private struct ThaiQuestionText: View {
+        let text: String
+
+        var body: some View {
+            ViewThatFits(in: .vertical) {
+                Text(text)
+                    .font(.system(size: 48, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(nil)
+                    .minimumScaleFactor(0.6)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(text)
+                    .font(.system(size: 38, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(nil)
+                    .minimumScaleFactor(0.5)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ScrollView {
+                    Text(text)
+                        .font(.system(size: 34, weight: .bold))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                }
+                .frame(maxHeight: 180)
+            }
+        }
     }
 
     private var resultView: some View {
@@ -557,12 +589,14 @@ struct DailyQuizView: View {
         let last = Date(timeIntervalSince1970: quizLastDate)
         // Reset counters when boundaries passed
         if !cal.isDate(now, inSameDayAs: last) {
+            quizYesterdayCount = quizDailyCount
             quizDailyCount = 0
             correctDaily = 0
             attemptDaily = 0
         }
         if cal.component(.weekOfYear, from: now) != cal.component(.weekOfYear, from: last) ||
             cal.component(.yearForWeekOfYear, from: now) != cal.component(.yearForWeekOfYear, from: last) {
+            quizPrevWeekCount = quizWeeklyCount
             quizWeeklyCount = 0
             correctWeekly = 0
             attemptWeekly = 0

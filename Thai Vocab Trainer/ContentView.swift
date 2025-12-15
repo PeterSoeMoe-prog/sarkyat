@@ -441,6 +441,9 @@ struct ContentView: View {
                 
                 .onChange(of: vocabStore.items) { _, _ in
                     filterItems()
+                    if counterItem == nil || editingItem == nil {
+                        applyRouterSheetState(router.sheet)
+                    }
                 }
                 .onChange(of: searchText) {
                     // Debounce to reduce redundant filtering while typing
@@ -467,24 +470,7 @@ struct ContentView: View {
                     showDailyQuiz = false
                     editingItem = nil
                     counterItem = nil
-                    switch newValue {
-                    case .none:
-                        break
-                    case .settings:
-                        showSettingsSheet = true
-                    case .addWord:
-                        showAddSheet = true
-                    case .dailyQuiz:
-                        showDailyQuiz = true
-                    case .editWord(let id):
-                        if let item = items.first(where: { $0.id == id }) {
-                            editingItem = item
-                        }
-                    case .counter(let id):
-                        if let item = items.first(where: { $0.id == id }) {
-                            counterItem = item
-                        }
-                    }
+                    applyRouterSheetState(newValue)
                 }
                 .alert("Error", isPresented: $showingAlert) {
                     Button("OK") { }
@@ -791,9 +777,13 @@ struct ContentView: View {
             sessionPaused = false
         }
         if let uuid = UUID(uuidString: storedLastVocabID),
-           let last = items.first(where: { $0.id == uuid }),
-           last.status != .ready {
+           items.contains(where: { $0.id == uuid }) {
             router.openCounter(id: uuid)
+            return
+        }
+
+        if let next = items.first(where: { $0.status != .ready }) ?? items.first {
+            router.openCounter(id: next.id)
         } else {
             router.openContent()
         }
@@ -821,8 +811,37 @@ struct ContentView: View {
         selectedStatus = currentOption.status
         filterItems()
 
+        if router.shouldActivateSearch {
+            showSearchBox = true
+            activateSearchNow = true
+            router.shouldActivateSearch = false
+        }
+
         if case .dailyQuiz = router.sheet {
             showDailyQuiz = true
+        }
+
+        applyRouterSheetState(router.sheet)
+    }
+
+    private func applyRouterSheetState(_ sheet: AppRouter.Sheet?) {
+        switch sheet {
+        case .none:
+            break
+        case .settings:
+            showSettingsSheet = true
+        case .addWord:
+            showAddSheet = true
+        case .dailyQuiz:
+            showDailyQuiz = true
+        case .editWord(let id):
+            if let item = items.first(where: { $0.id == id }) {
+                editingItem = item
+            }
+        case .counter(let id):
+            if let item = items.first(where: { $0.id == id }) {
+                counterItem = item
+            }
         }
     }
 
@@ -927,6 +946,8 @@ struct ContentView: View {
         let capturedSelectedCategory = selectedCategory
         let capturedSortAsc = sortByCountAsc
         let sourceItems = items // copy the value type array reference
+        let recentOrder = RecentCountRecorder.shared.recentIDs()
+        let recentRank: [UUID: Int] = Dictionary(uniqueKeysWithValues: recentOrder.enumerated().map { ($0.element, $0.offset) })
 
         DispatchQueue.global(qos: .userInitiated).async {
             let hasQuery = !q.isEmpty
@@ -936,6 +957,10 @@ struct ContentView: View {
             var result = sourceItems.filter { item in
                 if !hasQuery && capturedOption != .recent {
                     if let sel = capturedSelectedStatus, item.status != sel { return false }
+                }
+                if !hasQuery && capturedOption == .recent {
+                    // Recent tab should only show the most recently studied items
+                    if recentRank[item.id] == nil { return false }
                 }
                 if let selCat = capturedSelectedCategory {
                     let cat = item.category?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -958,7 +983,14 @@ struct ContentView: View {
             }
 
             // Sort
-            if capturedOption == .all || capturedOption == .recent {
+            if capturedOption == .recent && !hasQuery {
+                // Newest first, based on RecentCountRecorder ordering
+                result.sort {
+                    let r0 = recentRank[$0.id] ?? Int.max
+                    let r1 = recentRank[$1.id] ?? Int.max
+                    return r0 < r1
+                }
+            } else if capturedOption == .all || capturedOption == .recent {
                 let weight: [VocabularyStatus: Int] = [.drill: 0, .queue: 1, .ready: 2]
                 result.sort {
                     let w0 = weight[$0.status] ?? 3

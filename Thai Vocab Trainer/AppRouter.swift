@@ -53,6 +53,7 @@ final class AppRouter: ObservableObject {
     }
 
     func openCounter(id: UUID) {
+        UserDefaults.standard.set(id.uuidString, forKey: "lastVocabID")
         destination = .content
         sheet = .counter(id)
     }
