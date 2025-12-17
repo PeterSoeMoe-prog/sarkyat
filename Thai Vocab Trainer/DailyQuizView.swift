@@ -436,7 +436,7 @@ struct DailyQuizView: View {
             .onAppear {
                 // Trigger confetti and sound when result page appears
                 confettiTrigger += 1
-                AudioServicesPlaySystemSound(1025) // Congrat sound
+                SoundManager.playQuizSuccess()
                 // Save quiz stats to CSV
                 let stat = QuizStat(
                     date: Date(),
@@ -557,7 +557,7 @@ struct DailyQuizView: View {
             encodeCoveredIDs(covered)
             // Play cheer sound after 0.25s delay for correct answer
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                SoundManager.playSound(1025) // Cheer sound for correct answer
+                SoundManager.playQuizSuccess()
             }
         }
         // proceed to next after brief delay
@@ -576,9 +576,7 @@ struct DailyQuizView: View {
     // MARK: - Stats update
     // MARK: - Sound
     private func playTapSound() {
-        #if os(iOS)
-        AudioServicesPlaySystemSound(1104) // tap pop
-        #endif
+        SoundManager.playSound(1104) // tap pop
     }
 
     private func updateQuizStats(correct: Int = 0, attempts: Int = 0) {
@@ -660,7 +658,7 @@ struct DailyQuizView: View {
         
         // Show feedback
         feedbackText = "TIME'S UP"
-        AudioServicesPlaySystemSound(1053) // Error sound
+        SoundManager.playSound(1053) // Error sound
         
         // Schedule notification for failed word
         NotificationEngine.shared.scheduleFailedQuizNotification(

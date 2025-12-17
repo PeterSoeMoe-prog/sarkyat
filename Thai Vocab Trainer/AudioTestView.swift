@@ -40,22 +40,26 @@ struct AudioTestView: View {
         }
         .onAppear {
             // Optionally set audio session category when view appears
+            #if os(iOS)
             do {
-                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
+                try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [.mixWithOthers])
                 try AVAudioSession.sharedInstance().setActive(true)
-                print("Audio session set to playback.")
+                print("Audio session set to ambient.")
             } catch {
                 print("Failed to set audio session category. Error: \(error.localizedDescription)")
             }
+            #endif
         }
         .onDisappear {
             // Deactivate audio session when view disappears to prevent conflicts
+            #if os(iOS)
             do {
                 try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                 print("Audio session deactivated.")
             } catch {
                 print("Failed to deactivate audio session. Error: \(error.localizedDescription)")
             }
+            #endif
         }
     }
 }

@@ -471,23 +471,11 @@ struct CounterView: View {
                     print("🎉 DEBUG: Congratulations popup appeared!")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                         #if os(iOS)
-                        do {
-                            let audioSession = AVAudioSession.sharedInstance()
-                            try audioSession.setCategory(.playback, options: [.mixWithOthers])
-                            try audioSession.setActive(true)
-                            print("🔊 DEBUG: Audio session activated")
-                            AudioServicesPlaySystemSoundWithCompletion(1027) {
-                                print("🎵 DEBUG: System sound 1027 completed")
-                            }
-                            let generator = UIImpactFeedbackGenerator(style: .heavy)
-                            generator.prepare()
-                            generator.impactOccurred()
-                            print("📳 DEBUG: Heavy vibration triggered")
-                        } catch {
-                            print("❌ DEBUG: Audio session error: \(error)")
-                            AudioServicesPlaySystemSound(1027)
-                            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-                        }
+                        SoundManager.playSound(1027)
+                        let generator = UIImpactFeedbackGenerator(style: .heavy)
+                        generator.prepare()
+                        generator.impactOccurred()
+                        print("📳 DEBUG: Heavy vibration triggered")
                         #endif
                     }
                 }
@@ -1269,7 +1257,7 @@ struct CounterView: View {
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, options: [.duckOthers])
+            try session.setCategory(.ambient, options: [.mixWithOthers, .duckOthers])
             try session.setActive(true, options: [])
         } catch {
             print("AudioSession error: \(error.localizedDescription)")
@@ -1358,7 +1346,7 @@ if let encoded = prompt.addingPercentEncoding(withAllowedCharacters: .urlQueryAl
     private func queueCongrats(for text: String) {
         // Play sound when marking as ready with slight delay (sound1)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            AudioServicesPlaySystemSound(1025)
+            SoundManager.playSound(1025)
             SoundManager.playVibration()
         }
         
