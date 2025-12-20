@@ -1304,8 +1304,13 @@ if isSingleWord {
 } else {
     prompt = "Explain '\(text)'s sentense structure."
 }
-if let encoded = prompt.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-   let url = URL(string: "https://chat.openai.com/?model=gpt-4o&prompt=\(encoded)") {
+UIPasteboard.general.string = prompt
+let encoded = prompt.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+if let url = URL(string: "https://chat.openai.com/?model=gpt-4o&q=\(encoded)") ??
+            URL(string: "https://chat.openai.com/?q=\(encoded)") ??
+            URL(string: "https://chatgpt.com/?q=\(encoded)") {
+    UIApplication.shared.open(url)
+} else if let url = URL(string: "https://chatgpt.com/") {
     UIApplication.shared.open(url)
 }
 #endif
