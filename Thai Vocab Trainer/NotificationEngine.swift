@@ -383,10 +383,10 @@ struct NotificationCard: View {
             }
             
             HStack(spacing: 6) {
-                Image(systemName: "clock.fill")
+                Image(systemName: notification.isDelivered ? "checkmark.circle.fill" : "flame.fill")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text(notification.isDelivered ? "Completed" : timeUntilString(notification.scheduledFor))
+                Text(notification.isDelivered ? "Completed" : "Drill")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

@@ -4,5 +4,10 @@
 <dict>
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>GMCfnTaffibunDemo.ttf</string>
+		<string>Itim Regular.otf</string>
+	</array>
 </dict>
 </plist>

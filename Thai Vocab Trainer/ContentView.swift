@@ -380,7 +380,11 @@ struct ContentView: View {
                 .navigationDestination(isPresented: $openCategoryFromCounter) {
                     CategoryListView(items: itemsBinding, category: categoryToOpen)
                 }
-                .sheet(isPresented: $showAddSheet) {
+                .sheet(isPresented: $showAddSheet, onDismiss: {
+                    if case .addWord = router.sheet {
+                        router.dismissSheet()
+                    }
+                }) {
                     AddEditWordSheet(
                         isAdding: true,
                         item: .constant(VocabularyEntry(thai: newThai, burmese: newBurmese.isEmpty ? nil : newBurmese, count: Int(newCount) ?? 0, status: newStatus)), // Pass initial values
@@ -389,11 +393,17 @@ struct ContentView: View {
                             vocabStore.upsert(newItem)
                             resetNewWordFields()
                             showAddSheet = false
+                            if case .addWord = router.sheet {
+                                router.dismissSheet()
+                            }
                             playTapSound()
                         },
                         onCancel: {
                             resetNewWordFields()
                             showAddSheet = false
+                            if case .addWord = router.sheet {
+                                router.dismissSheet()
+                            }
                         }
                     )
                 }
@@ -441,7 +451,7 @@ struct ContentView: View {
                 
                 .onChange(of: vocabStore.items) { _, _ in
                     filterItems()
-                    if counterItem == nil || editingItem == nil {
+                    if counterItem == nil && editingItem == nil {
                         applyRouterSheetState(router.sheet)
                     }
                 }
@@ -1063,6 +1073,7 @@ struct AddEditWordSheet: View {
 
     @State private var showingSaveAlert = false
     @State private var saveAlertMessage = ""
+    @State private var isSaving = false
 
     private static let countFormatter: NumberFormatter = {
         let f = NumberFormatter()
@@ -1198,6 +1209,7 @@ struct AddEditWordSheet: View {
                     Button(isAdding ? "Add" : "Save & Back to Count") {
                         saveAction()
                     }
+                    .disabled(isSaving)
                 }
             }
             .alert("Error", isPresented: $showingSaveAlert) {
@@ -1209,12 +1221,14 @@ struct AddEditWordSheet: View {
     }
 
     private func saveAction() {
+        if isSaving { return }
         guard let count = Self.parseCount(countText),
               !thaiText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             saveAlertMessage = "Thai word is required and Count must be a valid number."
             showingSaveAlert = true
             return
         }
+        isSaving = true
         print("🧪 AddEditWordSheet.saveAction isAdding=\(isAdding), id=\(item.id), oldCount=\(item.count)")
         let oldCount = item.count // capture before mutation for delta computation
         var updatedItem = $item.wrappedValue // Start with current item data

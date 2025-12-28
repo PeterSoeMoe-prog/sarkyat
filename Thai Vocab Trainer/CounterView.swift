@@ -8,6 +8,7 @@ import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
+import CoreText
 
 // Shared formatter cache to avoid repeated allocations on hot paths
 fileprivate enum Formatters {
@@ -38,6 +39,118 @@ struct CounterView: View {
     @EnvironmentObject private var router: AppRouter
     @Environment(\.dismiss) private var dismiss
     let totalVocabCount: Int
+
+    private static var bundledItimFontPostScriptName: String? = nil
+    private static var didAttemptRegisterBundledItimFont: Bool = false
+
+    private static var bundledThaiFontPostScriptName: String? = nil
+    private static var didAttemptRegisterBundledThaiFont: Bool = false
+
+    private static func resolveBundledItimFontPostScriptName() -> String? {
+        if didAttemptRegisterBundledItimFont { return bundledItimFontPostScriptName }
+        didAttemptRegisterBundledItimFont = true
+
+        guard let url = Bundle.main.url(forResource: "Itim Regular", withExtension: "otf") else {
+            return nil
+        }
+        CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        guard let provider = CGDataProvider(url: url as CFURL),
+              let cgFont = CGFont(provider),
+              let ps = cgFont.postScriptName as String? else {
+            return nil
+        }
+        bundledItimFontPostScriptName = ps
+        return ps
+    }
+
+    private static func resolveBundledThaiFontPostScriptName() -> String? {
+        if didAttemptRegisterBundledThaiFont { return bundledThaiFontPostScriptName }
+        didAttemptRegisterBundledThaiFont = true
+
+        guard let url = Bundle.main.url(forResource: "GMCfnTaffibunDemo", withExtension: "ttf") else {
+            return nil
+        }
+        CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        guard let provider = CGDataProvider(url: url as CFURL),
+              let cgFont = CGFont(provider),
+              let ps = cgFont.postScriptName as String? else {
+            return nil
+        }
+        bundledThaiFontPostScriptName = ps
+        return ps
+    }
+
+    private let thaiCartoonFontCandidates: [String] = [
+        "Mali-Bold",
+        "Mali-Regular",
+        "Sriracha-Regular",
+        "Itim-Regular"
+    ]
+
+    private func thaiTitleFont(size: CGFloat) -> Font {
+        #if canImport(UIKit)
+        if let psName = Self.resolveBundledItimFontPostScriptName(), UIFont(name: psName, size: size) != nil {
+            return .custom(psName, size: size)
+        }
+        if let psName = Self.resolveBundledThaiFontPostScriptName(), UIFont(name: psName, size: size) != nil {
+            return .custom(psName, size: size)
+        }
+        for name in thaiCartoonFontCandidates {
+            if UIFont(name: name, size: size) != nil {
+                return .custom(name, size: size)
+            }
+        }
+        #endif
+        return .system(size: size, weight: .heavy, design: .rounded)
+    }
+
+    private func thaiRainbowPalette() -> [Color] {
+        if appTheme == .dark {
+            return [.cyan, .purple, .pink, .yellow, .green]
+        }
+        return [
+            Color(red: 0.55, green: 0.50, blue: 0.98),
+            Color(red: 0.96, green: 0.48, blue: 0.90),
+            Color(red: 0.38, green: 0.84, blue: 0.98),
+            Color(red: 0.98, green: 0.78, blue: 0.24),
+            Color(red: 0.38, green: 0.78, blue: 0.42)
+        ]
+    }
+
+    private func rainbowAttributedThai(_ text: String) -> AttributedString {
+        var out = AttributedString()
+        let palette = thaiRainbowPalette()
+        var i = 0
+        for ch in text {
+            var part = AttributedString(String(ch))
+            part.foregroundColor = palette.isEmpty ? appTheme.primaryTextColor : palette[i % palette.count]
+            out.append(part)
+            i += 1
+        }
+        return out
+    }
+
+    @ViewBuilder
+    private func outlinedText(_ text: String, font: Font, color: Color, thickness: CGFloat) -> some View {
+        Text(text)
+            .font(font)
+            .foregroundColor(color)
+            .shadow(color: color, radius: 0, x: thickness, y: 0)
+            .shadow(color: color, radius: 0, x: -thickness, y: 0)
+            .shadow(color: color, radius: 0, x: 0, y: thickness)
+            .shadow(color: color, radius: 0, x: 0, y: -thickness)
+            .shadow(color: color, radius: 0, x: thickness, y: thickness)
+            .shadow(color: color, radius: 0, x: -thickness, y: thickness)
+            .shadow(color: color, radius: 0, x: thickness, y: -thickness)
+            .shadow(color: color, radius: 0, x: -thickness, y: -thickness)
+    }
+
+    @ViewBuilder
+    private func thaiTitleView(_ text: String, size: CGFloat) -> some View {
+        let font = thaiTitleFont(size: size)
+        Text(rainbowAttributedThai(text))
+            .font(font)
+    }
     @State private var recentVocabs: [VocabularyEntry] = []
     // Flag to toggle Settings sheet
     @State private var showSettings: Bool = false
@@ -709,11 +822,11 @@ struct CounterView: View {
                 speakThaiNow(item.thai)
             }) {
                 VStack(spacing: 0) {
-                    Text(item.thai)
-                        .font(.system(size: 36, weight: .regular))
-                        .foregroundColor(appTheme.primaryTextColor)
+                    let baseSize: CGFloat = item.thai.count > 22 ? 34 : (item.thai.count > 14 ? 38 : 44)
+                    thaiTitleView(item.thai, size: baseSize)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.5)
+                        .minimumScaleFactor(0.32)
+                        .allowsTightening(true)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.vertical, 6)
                         .background(
@@ -746,8 +859,10 @@ struct CounterView: View {
     private func burmeseLine(geo: GeometryProxy) -> some View {
         if let burmese = item.burmese, !burmese.isEmpty {
             Text(burmese)
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(.yellow)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundColor(.yellow.opacity(0.95))
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
                 .padding(.horizontal, 20)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .top)
