@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 // Shared model type used for CSV export
 // Ensure VocabularyEntry is visible via import or same module
@@ -8,6 +9,8 @@ import SwiftUI
 struct SettingsView: View {
     // Persisted theme selection shared with the rest of the app
     @AppStorage("appTheme") private var appTheme: AppTheme = .light
+    @AppStorage("studyStartDateTimestamp") private var studyStartDateTimestamp: Double = 0
+    @AppStorage("dailyTargetHits") private var dailyTargetHits: Int = 5000
     @EnvironmentObject private var vocabStore: VocabStore
 
     // Dismiss environment
@@ -24,6 +27,21 @@ struct SettingsView: View {
         Binding(
             get: { appTheme == .dark },
             set: { newValue in appTheme = newValue ? .dark : .light }
+        )
+    }
+
+    private var startDateBinding: Binding<Date> {
+        let fallback = Calendar.current.date(from: DateComponents(year: 2023, month: 6, day: 19)) ?? Date()
+        return Binding(
+            get: {
+                if studyStartDateTimestamp > 0 {
+                    return Date(timeIntervalSince1970: studyStartDateTimestamp)
+                }
+                return fallback
+            },
+            set: { newValue in
+                studyStartDateTimestamp = newValue.timeIntervalSince1970
+            }
         )
     }
 
@@ -66,6 +84,24 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Study") {
+                    DatePicker(
+                        "Starting Date",
+                        selection: startDateBinding,
+                        displayedComponents: [.date]
+                    )
+
+                    HStack {
+                        Text("Daily Target")
+                        Spacer()
+                        TextField("5000", value: $dailyTargetHits, format: .number)
+                            .multilineTextAlignment(.trailing)
+                            .keyboardType(.numberPad)
+                        Text("Hits")
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 // Data management
                 Section("Data") {
                     // Import CSV button with pre-import logic
@@ -100,6 +136,12 @@ struct SettingsView: View {
                                 }
                             }
                         }
+                    }
+                    NavigationLink {
+                        AudioRecordingView()
+                    } label: {
+                        Text("Notes")
+                            .foregroundColor(.accentColor)
                     }
                     Button("Clean Duplicates") {
                         vocabStore.cleanDuplicates()
@@ -185,6 +227,475 @@ struct SettingsView: View {
             Button("OK", role: .cancel) { importMessage = nil }
         } message: {
             Text(importMessage ?? "-")
+        }
+    }
+}
+
+private struct AudioRecordingView: View {
+    private struct RecordingItem: Identifiable, Equatable {
+        let id: UUID
+        let filename: String
+        let createdAt: Date
+        let fileName: String
+        let isDone: Bool
+    }
+
+    private struct RecordingDraft {
+        let id: UUID
+        let filename: String
+        let createdAt: Date
+        let fileName: String
+    }
+
+    private final class PlaybackController: NSObject, ObservableObject, AVAudioPlayerDelegate {
+        @Published var playingRecordingID: UUID?
+        @Published var waveformHeights: [CGFloat] = Array(repeating: 0.18, count: 18)
+        private var player: AVAudioPlayer?
+        private var meterTimer: Timer?
+
+        func stop() {
+            meterTimer?.invalidate()
+            meterTimer = nil
+            player?.stop()
+            player = nil
+            playingRecordingID = nil
+            waveformHeights = Array(repeating: 0.18, count: 18)
+        }
+
+        func pause() {
+            meterTimer?.invalidate()
+            meterTimer = nil
+            player?.pause()
+            playingRecordingID = nil
+            waveformHeights = Array(repeating: 0.18, count: 18)
+        }
+
+        func play(url: URL, id: UUID) {
+            stop()
+            do {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default, options: [])
+                try session.setActive(true, options: [])
+
+                let p = try AVAudioPlayer(contentsOf: url)
+                p.delegate = self
+                p.isMeteringEnabled = true
+                p.prepareToPlay()
+                p.play()
+                player = p
+                playingRecordingID = id
+
+                meterTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+                    guard let self = self, let player = self.player else { return }
+                    player.updateMeters()
+                    let power = player.averagePower(forChannel: 0)
+                    let normalized = max(0, min(1, (power + 60) / 60))
+
+                    let next = CGFloat(0.12 + (normalized * 0.88))
+                    var updated = self.waveformHeights
+                    if !updated.isEmpty {
+                        updated.removeFirst()
+                    }
+                    updated.append(next)
+
+                    DispatchQueue.main.async {
+                        withAnimation(.linear(duration: 0.05)) {
+                            self.waveformHeights = updated
+                        }
+                    }
+                }
+            } catch {
+                stop()
+            }
+        }
+
+        func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+            DispatchQueue.main.async { self.stop() }
+        }
+    }
+
+    private struct WaveformBarsView: View {
+        let heights: [CGFloat]
+
+        var body: some View {
+            HStack(spacing: 2) {
+                ForEach(heights.indices, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.accentColor)
+                        .frame(width: 3, height: 34 * heights[i])
+                }
+            }
+            .frame(height: 34)
+        }
+    }
+
+    private struct WaveformLeadingView: View {
+        let isPlaying: Bool
+        let heights: [CGFloat]
+
+        var body: some View {
+            ZStack {
+                if isPlaying {
+                    WaveformBarsView(heights: heights)
+                } else {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 32, weight: .regular))
+                        .foregroundColor(.accentColor)
+                }
+            }
+            .frame(width: 72, height: 44)
+        }
+    }
+
+    private struct PrimaryButtonStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .padding(.vertical, 12)
+                .padding(.horizontal, 14)
+                .background(Color.accentColor.opacity(configuration.isPressed ? 0.75 : 1.0))
+                .foregroundColor(.white)
+                .cornerRadius(12)
+        }
+    }
+
+    private struct SecondaryButtonStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .padding(.vertical, 12)
+                .padding(.horizontal, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.secondary.opacity(configuration.isPressed ? 0.16 : 0.10))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.secondary.opacity(configuration.isPressed ? 0.6 : 0.35), lineWidth: 1)
+                )
+                .foregroundColor(.primary)
+        }
+    }
+
+    private struct PersistedRecordingItem: Codable {
+        let id: String
+        let filename: String
+        let createdAt: Double
+        let fileName: String?
+        let isDone: Bool?
+    }
+
+    @State private var isRecording = false
+    @State private var secondsElapsed: Int = 0
+    @State private var recordings: [RecordingItem] = []
+    @StateObject private var playback = PlaybackController()
+    @AppStorage("audioRecordingsJSON") private var audioRecordingsJSON: String = "[]"
+
+    @State private var recorder: AVAudioRecorder?
+    @State private var micPermissionError: String?
+    @State private var isPreparingToRecord = false
+    @State private var recordingDraft: RecordingDraft?
+    @State private var isShowingResetConfirm = false
+
+    private let minRecordingSeconds: TimeInterval = 0.5
+
+    private static let filenameFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+
+    private var timeString: String {
+        let m = secondsElapsed / 60
+        let s = secondsElapsed % 60
+        return String(format: "%02d:%02d", m, s)
+    }
+
+    private func recordingsDirectoryURL() -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = docs.appendingPathComponent("Recordings", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    private func safeBaseName(from displayName: String) -> String {
+        displayName
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: " ", with: "_")
+    }
+
+    private func fileURL(for item: RecordingItem) -> URL {
+        recordingsDirectoryURL().appendingPathComponent(item.fileName)
+    }
+
+    private var doneCount: Int {
+        recordings.filter { $0.isDone }.count
+    }
+
+    private var activeRecordings: [RecordingItem] {
+        recordings.filter { !$0.isDone }
+    }
+
+    private func markDone(_ item: RecordingItem) {
+        if playback.playingRecordingID == item.id {
+            playback.stop()
+        }
+        if let idx = recordings.firstIndex(where: { $0.id == item.id }) {
+            let current = recordings[idx]
+            recordings[idx] = RecordingItem(
+                id: current.id,
+                filename: current.filename,
+                createdAt: current.createdAt,
+                fileName: current.fileName,
+                isDone: true
+            )
+        }
+    }
+
+    private func deleteActiveRecordings(at offsets: IndexSet) {
+        let snapshot = activeRecordings
+        for index in offsets {
+            guard snapshot.indices.contains(index) else { continue }
+            let item = snapshot[index]
+
+            if playback.playingRecordingID == item.id {
+                playback.stop()
+            }
+
+            let url = fileURL(for: item)
+            try? FileManager.default.removeItem(at: url)
+            recordings.removeAll { $0.id == item.id }
+        }
+    }
+
+    private func resetAll() {
+        playback.stop()
+        recorder?.stop()
+        recorder = nil
+        isRecording = false
+        isPreparingToRecord = false
+        recordingDraft = nil
+
+        for item in recordings {
+            let url = fileURL(for: item)
+            try? FileManager.default.removeItem(at: url)
+        }
+        recordings = []
+        audioRecordingsJSON = "[]"
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            if !recordings.isEmpty {
+                Text("Done \(doneCount)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Text(timeString)
+                .font(.system(size: 44, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+
+            if isRecording {
+                Button {
+                    let duration = recorder?.currentTime ?? 0
+                    recorder?.stop()
+                    recorder = nil
+                    isRecording = false
+
+                    if duration < minRecordingSeconds {
+                        if let draft = recordingDraft {
+                            let url = recordingsDirectoryURL().appendingPathComponent(draft.fileName)
+                            try? FileManager.default.removeItem(at: url)
+                        }
+                        recordingDraft = nil
+                        return
+                    }
+
+                    if let draft = recordingDraft {
+                        recordings.insert(
+                            RecordingItem(id: draft.id, filename: draft.filename, createdAt: draft.createdAt, fileName: draft.fileName, isDone: false),
+                            at: 0
+                        )
+                    }
+                    recordingDraft = nil
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SecondaryButtonStyle())
+            } else {
+                Button {
+                    playback.stop()
+
+                    isPreparingToRecord = true
+
+                    let session = AVAudioSession.sharedInstance()
+                    session.requestRecordPermission { granted in
+                        DispatchQueue.main.async {
+                            defer { isPreparingToRecord = false }
+                            guard granted else {
+                                micPermissionError = "Microphone permission is required to record notes."
+                                return
+                            }
+                            do {
+                                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+                                try session.setActive(true, options: [])
+
+                                let now = Date()
+                                let displayName = Self.filenameFormatter.string(from: now)
+                                let fileName = safeBaseName(from: displayName) + ".m4a"
+                                let url = recordingsDirectoryURL().appendingPathComponent(fileName)
+
+                                recordingDraft = RecordingDraft(id: UUID(), filename: displayName, createdAt: now, fileName: fileName)
+
+                                let settings: [String: Any] = [
+                                    AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                                    AVSampleRateKey: 44100,
+                                    AVNumberOfChannelsKey: 1,
+                                    AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+                                ]
+
+                                let r = try AVAudioRecorder(url: url, settings: settings)
+                                r.prepareToRecord()
+                                r.record()
+                                recorder = r
+
+                                isRecording = true
+                                secondsElapsed = 0
+                            } catch {
+                                recordingDraft = nil
+                                micPermissionError = error.localizedDescription
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Record", systemImage: "mic.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(isPreparingToRecord)
+            }
+
+            if !activeRecordings.isEmpty {
+                List {
+                    Section("Recorded voice") {
+                        ForEach(Array(activeRecordings.enumerated()), id: \.element.id) { index, item in
+                            Button {
+                                guard !(isRecording || isPreparingToRecord) else { return }
+                                let url = fileURL(for: item)
+
+                                guard FileManager.default.fileExists(atPath: url.path) else {
+                                    micPermissionError = "Audio file not found. Please record again."
+                                    return
+                                }
+
+                                if playback.playingRecordingID == item.id {
+                                    playback.pause()
+                                } else {
+                                    playback.play(url: url, id: item.id)
+                                }
+                            } label: {
+                                HStack {
+                                    WaveformLeadingView(
+                                        isPlaying: playback.playingRecordingID == item.id,
+                                        heights: playback.waveformHeights
+                                    )
+
+                                    Text("\(index + 1)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .frame(minWidth: 22, alignment: .trailing)
+
+                                    Text(item.filename)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Image(systemName: playback.playingRecordingID == item.id ? "pause.fill" : "play.fill")
+                                        .foregroundColor(.secondary)
+                                }
+                                .frame(minHeight: 64)
+                                .padding(.vertical, 6)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .disabled(isRecording || isPreparingToRecord)
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                Button {
+                                    markDone(item)
+                                } label: {
+                                    Text("Done")
+                                }
+                                .tint(.green)
+                            }
+                        }
+                        .onDelete(perform: deleteActiveRecordings)
+                    }
+                }
+                .listStyle(.insetGrouped)
+                .frame(maxHeight: 260)
+            }
+
+            Spacer()
+        }
+        .padding()
+        .navigationTitle("")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Reset") {
+                    isShowingResetConfirm = true
+                }
+                .foregroundColor(.red)
+                .disabled(isRecording || isPreparingToRecord)
+            }
+        }
+        .alert("Reset Notes", isPresented: $isShowingResetConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset", role: .destructive) { resetAll() }
+        } message: {
+            Text("This will delete all recorded voice rows and their audio files.")
+        }
+        .onAppear {
+            guard let data = audioRecordingsJSON.data(using: .utf8) else { return }
+            guard let decoded = try? JSONDecoder().decode([PersistedRecordingItem].self, from: data) else { return }
+            recordings = decoded.map { dto in
+                let uuid = UUID(uuidString: dto.id) ?? UUID()
+                let derivedFileName = safeBaseName(from: dto.filename) + ".m4a"
+                return RecordingItem(
+                    id: uuid,
+                    filename: dto.filename,
+                    createdAt: Date(timeIntervalSince1970: dto.createdAt),
+                    fileName: dto.fileName ?? derivedFileName,
+                    isDone: dto.isDone ?? false
+                )
+            }
+        }
+        .onChange(of: recordings) { newValue in
+            let encoded: [PersistedRecordingItem] = newValue.map {
+                PersistedRecordingItem(
+                    id: $0.id.uuidString,
+                    filename: $0.filename,
+                    createdAt: $0.createdAt.timeIntervalSince1970,
+                    fileName: $0.fileName,
+                    isDone: $0.isDone
+                )
+            }
+            if let data = try? JSONEncoder().encode(encoded),
+               let json = String(data: data, encoding: .utf8) {
+                audioRecordingsJSON = json
+            }
+        }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            guard isRecording else { return }
+            secondsElapsed += 1
+        }
+        .alert("Audio", isPresented: Binding(
+            get: { micPermissionError != nil },
+            set: { _ in micPermissionError = nil }
+        )) {
+            Button("OK", role: .cancel) { micPermissionError = nil }
+        } message: {
+            Text(micPermissionError ?? "")
         }
     }
 }

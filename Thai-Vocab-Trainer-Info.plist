@@ -4,6 +4,8 @@
 <dict>
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app records short voice notes.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>GMCfnTaffibunDemo.ttf</string>
