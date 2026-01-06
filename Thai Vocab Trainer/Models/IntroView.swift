@@ -16,6 +16,7 @@ struct IntroView: View {
     @AppStorage("remainingTimestamp") private var remainingTimestamp: Double = 0
     @AppStorage("sessionPaused") private var sessionPaused: Bool = false
     @AppStorage("lastVocabID") private var storedLastVocabID: String = ""
+    @AppStorage("counterPreferredStatsPage") private var counterPreferredStatsPage: Int = -1
     // Stats injected by the caller
     let totalCount: Int     // total repetitions logged
     let vocabCount: Int     // number of vocabulary entries
@@ -152,6 +153,13 @@ struct IntroView: View {
         }
         return missed
     }
+
+    private var oldestMissedTargetRemainingHits: Int? {
+        let target = max(1, dailyTargetHits)
+        guard let d = oldestMissedTargetDate else { return nil }
+        let hits = decodedStudyHistory[dayKey(from: d)] ?? 0
+        return max(0, target - hits)
+    }
     
     // Calculate yesterday's count and percentage change
     private var yesterdayCount: Int {
@@ -254,6 +262,7 @@ struct IntroView: View {
 
                             Button {
                                 sessionPaused = false
+                                counterPreferredStatsPage = 1
                                 if let uuid = UUID(uuidString: storedLastVocabID) {
                                     router.openCounter(id: uuid)
                                 } else {
@@ -295,7 +304,6 @@ struct IntroView: View {
                         .tag(0)
 
                         VStack(spacing: 6) {
-                        Spacer()
 
                         // Neon gradient colors (same as StatCard)
                         let neonColors: [Color] = [
@@ -307,7 +315,7 @@ struct IntroView: View {
                             Color(red:0.99, green:0.24, blue:0.38)
                         ]
 
-                        let hitsNumber = formatWithComma(dailyTargetHits)
+                        let hitsNumber = formatWithComma(oldestMissedTargetRemainingHits ?? dailyTargetHits)
                         let dateLine = oldestMissedTargetDate.map(dayLabel) ?? "-"
                         let numberText = Text(hitsNumber)
                             .font(.system(size: 54, weight: .heavy, design: .rounded))
@@ -346,7 +354,7 @@ struct IntroView: View {
                                         }
                                     )
                                     .onPreferenceChange(HitsSuperscriptWidthKey.self) { hitsSuperscriptWidth = $0 }
-                                    .offset(x: (hitsNumberWidth / 2) + (hitsSuperscriptWidth / 2) + 8, y: -16)
+                                    .offset(x: (hitsNumberWidth / 2) + (hitsSuperscriptWidth / 2) + 2, y: -16)
                             }
                             .multilineTextAlignment(.center)
                             .shadow(color: Color(red:0.99, green:0.24, blue:0.38).opacity(0.7), radius: 18, x: 0, y: 0)
@@ -354,13 +362,27 @@ struct IntroView: View {
 
                             Text(dateLine)
                                 .font(.system(size: 18, weight: .semibold, design: .rounded))
-                                .foregroundColor(.gray)
+                                .foregroundColor(.white.opacity(0.92))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(.ultraThinMaterial)
+                                    ZStack {
+                                        let dateGradient = LinearGradient(
+                                            gradient: Gradient(colors: [neonColors[0], neonColors[2], neonColors[3]]),
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(dateGradient)
+                                            .opacity(0.18)
+
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(dateGradient.opacity(0.8), lineWidth: 1)
+                                    }
                                 )
+                                .shadow(color: neonColors[0].opacity(0.25), radius: 10, x: 0, y: 0)
+                                .shadow(color: neonColors[3].opacity(0.18), radius: 14, x: 0, y: 0)
 
                             if missedTargetDaysCount > 0 {
                                 let dayWord = missedTargetDaysCount == 1 ? "day" : "days"
@@ -418,7 +440,7 @@ struct IntroView: View {
                         .tag(1)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
-                    .frame(height: 280)
+                    .frame(height: 310)
                     .onAppear { quickStartPage = 1 }
 
                     HStack(spacing: 8) {

@@ -283,6 +283,7 @@ struct ContentView: View {
     @State private var showBurmeseForID: UUID? = nil
     @State private var selectedStatus: VocabularyStatus? = nil
     @State private var selectedCategory: String? = nil
+    @State private var allowEmptyStatusFilter: Bool = false
     @State private var searchText: String = ""
     // Debounce work item for search to avoid filtering on every keystroke
     @State private var searchDebounceWorkItem: DispatchWorkItem? = nil
@@ -290,6 +291,7 @@ struct ContentView: View {
     @State private var showSettingsSheet = false
     @State private var editingItem: VocabularyEntry? = nil
     @State private var counterItem: VocabularyEntry? = nil
+    @State private var lastCounterSheetId: UUID? = nil
     @State private var showThaiPrimary = true
     @State private var sortByCountAsc = true
     // Show Daily Quiz from bottom cluster
@@ -449,8 +451,9 @@ struct ContentView: View {
                     DailyQuizView()
                 }
                 .sheet(item: $counterItem, onDismiss: {
+                    let dismissedId = lastCounterSheetId
                     counterItem = nil
-                    if case .counter = router.sheet {
+                    if case .counter(let id) = router.sheet, id == dismissedId {
                         router.dismissSheet()
                     }
                 }) { item in
@@ -509,8 +512,16 @@ struct ContentView: View {
                     showSettingsSheet = false
                     showAddSheet = false
                     showDailyQuiz = false
-                    editingItem = nil
-                    counterItem = nil
+                    if case .editWord = newValue {
+                        // keep; will be set by applyRouterSheetState
+                    } else {
+                        editingItem = nil
+                    }
+                    if case .counter = newValue {
+                        // keep; will be set by applyRouterSheetState
+                    } else {
+                        counterItem = nil
+                    }
                     applyRouterSheetState(newValue)
                 }
                 .alert("Error", isPresented: $showingAlert) {
@@ -743,6 +754,7 @@ struct ContentView: View {
 
             if selectedCategory == nil {
                 Button {
+                    allowEmptyStatusFilter = true
                     cycleOption()
                     selectedStatus = currentOption.status
                     filterItems()
@@ -834,13 +846,26 @@ struct ContentView: View {
         if sessionPaused {
             sessionPaused = false
         }
+
+        // For the bottom Play button: if there are still drill/queue vocabs,
+        // always open one of those (not the most recent vocab).
+        if let drill = items.first(where: { $0.status == .drill }) {
+            router.openCounter(id: drill.id)
+            return
+        }
+        if let queue = items.first(where: { $0.status == .queue }) {
+            router.openCounter(id: queue.id)
+            return
+        }
+
+        // Otherwise, fall back to resuming the last vocab (or any vocab).
         if let uuid = UUID(uuidString: storedLastVocabID),
            items.contains(where: { $0.id == uuid }) {
             router.openCounter(id: uuid)
             return
         }
 
-        if let next = items.first(where: { $0.status != .ready }) ?? items.first {
+        if let next = items.first {
             router.openCounter(id: next.id)
         } else {
             router.openContent()
@@ -912,6 +937,7 @@ struct ContentView: View {
         case .counter(let id):
             if let item = items.first(where: { $0.id == id }) {
                 counterItem = item
+                lastCounterSheetId = id
             }
         }
     }
@@ -1009,6 +1035,27 @@ struct ContentView: View {
         // Simple per-session cache for normalized strings to avoid recomputing per keystroke
         struct SearchCache {
             static var map: [UUID: (thai: String, burmese: String?)] = [:]
+        }
+        // If we're not searching and not in a category, avoid an empty status filter.
+        // Fallback order requested: drill -> queue -> all.
+        let trimmedQ = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedQ.isEmpty,
+           selectedCategory == nil,
+           currentOption != .recent,
+           currentOption != .quized,
+           !allowEmptyStatusFilter,
+           let status = currentOption.status {
+            let hasAnyForStatus = items.contains(where: { $0.status == status })
+            if !hasAnyForStatus {
+                if items.contains(where: { $0.status == .drill }) {
+                    currentOption = .drill
+                } else if items.contains(where: { $0.status == .queue }) {
+                    currentOption = .queue
+                } else {
+                    currentOption = .all
+                }
+                selectedStatus = currentOption.status
+            }
         }
         // Capture inputs to avoid data races and allow staleness checks
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1132,6 +1179,10 @@ struct AddEditWordSheet: View {
     @AppStorage("studyHistoryJSON") private var studyHistoryJSON: String = ""
     @AppStorage("todayCount") private var todayCount: Int = 0
     @AppStorage("todayDate") private var todayDate: String = ""
+    @AppStorage("todayWorkHistoryJSON") private var todayWorkHistoryJSON: String = ""
+    @AppStorage("dailyTargetHits") private var dailyTargetHits: Int = 5000
+    @AppStorage("studyStartDateTimestamp") private var studyStartDateTimestamp: Double = 0
+    @AppStorage("backfillActiveDayKey") private var backfillActiveDayKey: String = ""
 
     // Internal state for text fields, allows live editing without updating the source binding until save
     @State private var thaiText: String
@@ -1340,8 +1391,24 @@ struct AddEditWordSheet: View {
         return f.string(from: date)
     }
 
+    private var startDate: Date {
+        let fallback = Calendar.current.date(from: DateComponents(year: 2023, month: 6, day: 19)) ?? Date()
+        if studyStartDateTimestamp > 0 {
+            return Date(timeIntervalSince1970: studyStartDateTimestamp)
+        }
+        return fallback
+    }
+
     private func loadStudyHistory() -> [String: Int] {
         if let data = studyHistoryJSON.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            return decoded
+        }
+        return [:]
+    }
+
+    private func loadTodayWorkHistory() -> [String: Int] {
+        if let data = todayWorkHistoryJSON.data(using: .utf8),
            let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
             return decoded
         }
@@ -1362,11 +1429,124 @@ struct AddEditWordSheet: View {
         }
     }
 
+    private func saveTodayWorkHistory(_ history: [String: Int]) {
+        let now = Date()
+        let cal = Calendar.current
+        let keys: [String] = (0..<1200).compactMap { off in
+            guard let d = cal.date(byAdding: .day, value: -off, to: now) else { return nil }
+            return dayKey(from: d)
+        }
+        let trimmed = history.filter { keys.contains($0.key) }
+        if let data = try? JSONEncoder().encode(trimmed), let s = String(data: data, encoding: .utf8) {
+            todayWorkHistoryJSON = s
+        }
+    }
+
     private func appendStudyHistory(date: Date, increment: Int) {
         var history = loadStudyHistory()
         let key = dayKey(from: date)
         let current = history[key] ?? 0
         history[key] = max(0, current + increment)
+        saveStudyHistory(history)
+    }
+
+    private func appendTodayWorkHistory(date: Date, increment: Int) {
+        var history = loadTodayWorkHistory()
+        let key = dayKey(from: date)
+        let current = history[key] ?? 0
+        history[key] = max(0, current + increment)
+        saveTodayWorkHistory(history)
+    }
+
+    private func resolveBackfillActiveDayKey(history: [String: Int]) -> String? {
+        let target = max(1, dailyTargetHits)
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: startDate)
+        let end = cal.startOfDay(for: Date())
+        guard start <= end else { return nil }
+
+        if !backfillActiveDayKey.isEmpty {
+            let hits = history[backfillActiveDayKey] ?? 0
+            if hits < target {
+                return backfillActiveDayKey
+            }
+        }
+
+        var current = start
+        while current <= end {
+            let key = dayKey(from: current)
+            let hits = history[key] ?? 0
+            if hits < target {
+                return key
+            }
+            guard let next = cal.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+        }
+        return nil
+    }
+
+    private func applyBackfillIncrement(_ increment: Int) {
+        if increment == 0 { return }
+
+        let target = max(1, dailyTargetHits)
+        var history = loadStudyHistory()
+
+        guard let startKey = resolveBackfillActiveDayKey(history: history) else {
+            return
+        }
+        backfillActiveDayKey = startKey
+
+        if increment < 0 {
+            let currentHits = history[startKey] ?? 0
+            history[startKey] = max(0, currentHits + increment)
+            saveStudyHistory(history)
+            return
+        }
+
+        let cal = Calendar.current
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+
+        var remainingInc = increment
+        var activeKey: String? = startKey
+
+        while remainingInc > 0, let key = activeKey {
+            let currentHits = history[key] ?? 0
+            let need = max(0, target - currentHits)
+            if need == 0 {
+                if let d = f.date(from: key),
+                   let next = cal.date(byAdding: .day, value: 1, to: d) {
+                    let nextKey = dayKey(from: next)
+                    backfillActiveDayKey = nextKey
+                    activeKey = resolveBackfillActiveDayKey(history: history)
+                    backfillActiveDayKey = activeKey ?? ""
+                } else {
+                    activeKey = nil
+                    backfillActiveDayKey = ""
+                }
+                continue
+            }
+
+            let add = min(need, remainingInc)
+            history[key] = currentHits + add
+            remainingInc -= add
+
+            if (history[key] ?? 0) >= target {
+                if let d = f.date(from: key),
+                   let next = cal.date(byAdding: .day, value: 1, to: d) {
+                    let nextKey = dayKey(from: next)
+                    backfillActiveDayKey = nextKey
+                    activeKey = resolveBackfillActiveDayKey(history: history)
+                    backfillActiveDayKey = activeKey ?? ""
+                } else {
+                    activeKey = nil
+                    backfillActiveDayKey = ""
+                }
+            }
+        }
+
         saveStudyHistory(history)
     }
 
@@ -1379,10 +1559,12 @@ struct AddEditWordSheet: View {
             // New day: reset and set first increment
             todayDate = iso.string(from: now)
             todayCount = max(0, increment)
-            appendStudyHistory(date: now, increment: todayCount)
+            appendTodayWorkHistory(date: now, increment: todayCount)
+            applyBackfillIncrement(todayCount)
         } else {
             todayCount = max(0, todayCount + increment)
-            appendStudyHistory(date: now, increment: increment)
+            appendTodayWorkHistory(date: now, increment: increment)
+            applyBackfillIncrement(increment)
         }
     }
 }

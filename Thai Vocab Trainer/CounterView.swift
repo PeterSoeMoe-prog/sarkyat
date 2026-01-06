@@ -242,12 +242,17 @@ struct CounterView: View {
         return nil
     }
 
-    private func routeToCounter(id: UUID) {
-        // Avoid sheet-on-sheet issues: dismiss then reopen
-        dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            router.openCounter(id: id)
+    private func syncBackfillActiveDayKeyIfNeeded() {
+        let history = loadStudyHistory()
+        let resolved = resolveBackfillActiveDayKey(history: history) ?? ""
+        if backfillActiveDayKey != resolved {
+            backfillActiveDayKey = resolved
         }
+    }
+
+    private func routeToCounter(id: UUID) {
+        // Keep the current sheet open; ContentView will swap the sheet item.
+        router.openCounter(id: id)
     }
     
     
@@ -266,6 +271,7 @@ struct CounterView: View {
     @AppStorage("dailyTargetHits") private var dailyTargetHits: Int = 5000
     @AppStorage("backfillActiveDayKey") private var backfillActiveDayKey: String = ""
     @AppStorage("todayWorkHistoryJSON") private var todayWorkHistoryJSON: String = ""
+    @AppStorage("counterPreferredStatsPage") private var counterPreferredStatsPage: Int = -1
     // Leave default empty to avoid constructing a formatter at property init
     @AppStorage("todayDate") private var todayDate: String = ""
 
@@ -285,10 +291,52 @@ struct CounterView: View {
     }
     private var statPercentString: String {
         let prev = yesterdayCount
-        if prev == 0 { return "" }
-        let change = (Double(todayCount - prev) / Double(prev)) * 100.0
+        guard prev > 0 else { return "" }
+        let change = ((Double(todayCount) - Double(prev)) / Double(prev)) * 100
         let sign = change >= 0 ? "+" : ""
         return String(format: "%@%.0f%%", sign, change)
+    }
+
+    private var missedTargetDaysCount: Int {
+        let history = loadStudyHistory()
+        let target = max(1, dailyTargetHits)
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: startDate)
+        let end = cal.startOfDay(for: Date())
+        guard start <= end else { return 0 }
+
+        var missed = 0
+        var current = start
+        while current <= end {
+            let key = dayKey(from: current)
+            let hits = history[key] ?? 0
+            if hits < target { missed += 1 }
+            guard let next = cal.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+        }
+        return missed
+    }
+
+    private var missedTargetQty: Int {
+        let history = loadStudyHistory()
+        let target = max(1, dailyTargetHits)
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: startDate)
+        let end = cal.startOfDay(for: Date())
+        guard start <= end else { return 0 }
+
+        var totalMissing = 0
+        var current = start
+        while current <= end {
+            let key = dayKey(from: current)
+            let hits = history[key] ?? 0
+            if hits < target {
+                totalMissing += (target - hits)
+            }
+            guard let next = cal.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+        }
+        return totalMissing
     }
 
     private var oldestMissedTargetInfo: (key: String?, dateLine: String, remaining: Int?) {
@@ -643,6 +691,39 @@ struct CounterView: View {
 
             HStack {
                 Spacer(minLength: 0)
+                StatCard(title: "Missed Days", titleColor: appTheme.primaryTextColor) {
+                    VStack(spacing: 4) {
+                        let countString = "\(missedTargetDaysCount)"
+                        let digitCount = countString.filter { $0.isNumber }.count
+                        let fontSize: CGFloat = digitCount <= 3 ? 62 : (digitCount == 4 ? 52 : 45)
+                        let effectiveTarget = max(1, dailyTargetHits)
+
+                        Text(countString)
+                            .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                            .foregroundColor(.clear)
+                            .fixedSize()
+                            .overlay(
+                                LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    .mask(
+                                        Text(countString)
+                                            .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                                    )
+                            )
+
+                        VStack(spacing: 1) {
+                            Text("\(missedTargetQty.formatted()) Hits (\(effectiveTarget.formatted())/Day)")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity)
+            .tag(2)
+
+            HStack {
+                Spacer(minLength: 0)
                 StatCard(title: remainingLabel, titleColor: appTheme.primaryTextColor) {
                     Text(remainingFormatted)
                         .font(.system(size: 62, weight: .heavy, design: .rounded))
@@ -658,7 +739,7 @@ struct CounterView: View {
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
-            .tag(2)
+            .tag(3)
 
             HStack {
                 Spacer(minLength: 0)
@@ -677,11 +758,18 @@ struct CounterView: View {
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
-            .tag(3)
+            .tag(4)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .frame(height: 140)
-        .onAppear { statsCardPage = 0 }
+        .onAppear {
+            if counterPreferredStatsPage >= 0 {
+                statsCardPage = counterPreferredStatsPage
+                counterPreferredStatsPage = -1
+            } else {
+                statsCardPage = 0
+            }
+        }
     }
 
     @ViewBuilder
@@ -1345,6 +1433,8 @@ struct CounterView: View {
             if todayDate.isEmpty {
                 todayDate = Formatters.iso.string(from: Date())
             }
+
+            syncBackfillActiveDayKeyIfNeeded()
             
             if boostType == .mins && boostValue > 0 {
                 // start 1-sec timer only if a goal is set
@@ -1408,6 +1498,15 @@ struct CounterView: View {
             
             // No need to manually trigger speakThai here as it's already handled by onAppear
             // when the view appears with the new vocab
+        }
+        .onChange(of: studyHistoryJSON) { _, _ in
+            syncBackfillActiveDayKeyIfNeeded()
+        }
+        .onChange(of: dailyTargetHits) { _, _ in
+            syncBackfillActiveDayKeyIfNeeded()
+        }
+        .onChange(of: studyStartDateTimestamp) { _, _ in
+            syncBackfillActiveDayKeyIfNeeded()
         }
     }
 

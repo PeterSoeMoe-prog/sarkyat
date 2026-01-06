@@ -33,14 +33,21 @@ final class NotificationCenterDelegate: NSObject, UNUserNotificationCenterDelega
                 #endif
                 AppRouter.shared.openCounter(id: id)
             }
+        } else {
+            Task { @MainActor in
+                #if DEBUG
+                print("➡️ Routing to Content via AppRouter (no vocabID) title=\(response.notification.request.content.title)")
+                #endif
+                AppRouter.shared.openContent()
+            }
         }
         completionHandler()
     }
 
-    // Present banner/sound even when app is in foreground
+    // Do not show notifications while app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound, .badge])
+        completionHandler([])
     }
 }
