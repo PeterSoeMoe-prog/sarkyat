@@ -33,6 +33,20 @@ private struct ThaiTextHeightKey: PreferenceKey {
     }
 }
 
+private struct TodayCountWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct TodayDeltaWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct CounterView: View {
     @Binding var item: VocabularyEntry
     @Binding var allItems: [VocabularyEntry] // shared array
@@ -148,9 +162,13 @@ struct CounterView: View {
     @ViewBuilder
     private func thaiTitleView(_ text: String, size: CGFloat) -> some View {
         let font = thaiTitleFont(size: size)
-        Text(rainbowAttributedThai(text))
+        return Text(rainbowAttributedThai(text))
             .font(font)
     }
+
+    @State private var statsCardPage: Int = 0
+    @State private var todayCountTextWidth: CGFloat = 0
+    @State private var todayDeltaWidth: CGFloat = 0
     @State private var recentVocabs: [VocabularyEntry] = []
     // Flag to toggle Settings sheet
     @State private var showSettings: Bool = false
@@ -243,22 +261,59 @@ struct CounterView: View {
     @State private var sessionCount: Int = 0
     @State private var sessionTimerVisible: Bool = false
     @AppStorage("todayCount") private var todayCount: Int = 0
+    @AppStorage("studyStartDateTimestamp") private var studyStartDateTimestamp: Double = 0
     @AppStorage("studyHistoryJSON") private var studyHistoryJSON: String = ""
+    @AppStorage("dailyTargetHits") private var dailyTargetHits: Int = 5000
+    @AppStorage("backfillActiveDayKey") private var backfillActiveDayKey: String = ""
+    @AppStorage("todayWorkHistoryJSON") private var todayWorkHistoryJSON: String = ""
     // Leave default empty to avoid constructing a formatter at property init
     @AppStorage("todayDate") private var todayDate: String = ""
 
+    private var startDate: Date {
+        let fallback = Calendar.current.date(from: DateComponents(year: 2023, month: 6, day: 19)) ?? Date()
+        if studyStartDateTimestamp > 0 {
+            return Date(timeIntervalSince1970: studyStartDateTimestamp)
+        }
+        return fallback
+    }
+
     // Comparison vs previous day for the bottom Stat card
     private var yesterdayCount: Int {
-        let history = loadStudyHistory()
+        let history = loadTodayWorkHistory()
         let prev = Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
         return history[dayKey(from: prev)] ?? 0
     }
     private var statPercentString: String {
         let prev = yesterdayCount
-        let today = todayCount
-        if prev == 0 { return today > 0 ? "+100%" : "0%" }
-        let pct = Int(round((Double(today - prev) / Double(prev)) * 100))
-        return String(format: "%+d%%", pct)
+        if prev == 0 { return "" }
+        let change = (Double(todayCount - prev) / Double(prev)) * 100.0
+        let sign = change >= 0 ? "+" : ""
+        return String(format: "%@%.0f%%", sign, change)
+    }
+
+    private var oldestMissedTargetInfo: (key: String?, dateLine: String, remaining: Int?) {
+        let history = loadStudyHistory()
+        let target = max(1, dailyTargetHits)
+
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MMM d, yyyy"
+
+        let resolvedKey = resolveBackfillActiveDayKey(history: history)
+        guard let key = resolvedKey else {
+            return (key: nil, dateLine: "-", remaining: nil)
+        }
+
+        let hits = history[key] ?? 0
+        let remaining = max(0, target - hits)
+        let dateLine: String
+        if let d = Formatters.day.date(from: key) {
+            dateLine = f.string(from: d)
+        } else {
+            dateLine = key
+        }
+        return (key: key, dateLine: dateLine, remaining: remaining)
     }
     private var statTitle: String {
         if statPercentString.hasPrefix("+") { return "More than Prev Day" }
@@ -461,7 +516,7 @@ struct CounterView: View {
                 content
             }
             .padding(12)
-            .frame(width: 220, height: 120)
+            .frame(width: 260, height: 120)
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color.white.opacity(0.18), lineWidth: 1)
@@ -470,107 +525,163 @@ struct CounterView: View {
     }
 
     private var statsCardsRow: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
-                    // Card 1: Today Hits (default first) with percentage change
-                    StatCard(title: "Today Hits", titleColor: appTheme.primaryTextColor) {
-                        VStack(spacing: 4) {
-                            HStack(alignment: .top, spacing: 2) {
-                                let countString = "\(todayCount)"
-                                let digitCount = countString.count
-                                // Adaptive font size based on digit count (max 5 digits)
-                                let fontSize: CGFloat = digitCount <= 3 ? 62 : (digitCount == 4 ? 52 : 45)
+        TabView(selection: $statsCardPage) {
+            HStack {
+                Spacer(minLength: 0)
+                StatCard(title: "To Hit", titleColor: appTheme.primaryTextColor) {
+                    VStack(spacing: 4) {
+                        ZStack {
+                            let countString = oldestMissedTargetInfo.remaining.map { "\($0)" } ?? "-"
+                            let digitCount = countString.count
+                            let fontSize: CGFloat = digitCount <= 3 ? 62 : (digitCount == 4 ? 52 : 45)
 
-                                Text(countString)
-                                    .font(.system(size: fontSize, weight: .heavy, design: .rounded))
-                                    .foregroundColor(.clear)
-                                    .fixedSize()
-                                    .overlay(
-                                        LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                            .mask(
-                                                Text(countString)
-                                                    .font(.system(size: fontSize, weight: .heavy, design: .rounded))
-                                            )
-                                    )
-
-                                // Percentage change superscript with arrow
-                                if yesterdayCount > 0 {
-                                    VStack(spacing: 0) {
-                                        let isUp = statPercentString.hasPrefix("+")
-                                        let percentColor: Color = isUp ? .green : .red
-                                        let numberOnly = statPercentString.replacingOccurrences(of: "%", with: "")
-                                        // Number with superscript %
-                                        HStack(alignment: .firstTextBaseline, spacing: 0) {
-                                            Text(numberOnly)
-                                                .font(.system(size: 18, weight: .bold))
-                                                .foregroundColor(percentColor)
-                                                .fixedSize()
-                                            Text("%")
-                                                .font(.system(size: 12, weight: .bold))
-                                                .baselineOffset(4)
-                                                .foregroundColor(percentColor)
-                                        }
-                                        // Arrow indicator (filled triangle)
-                                        Image(systemName: isUp ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
-                                            .font(.system(size: 18, weight: .bold))
-                                            .foregroundColor(percentColor)
+                            Text(countString)
+                                .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                                .foregroundColor(.clear)
+                                .fixedSize()
+                                .overlay(
+                                    LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                        .mask(
+                                            Text(countString)
+                                                .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                                        )
+                                )
+                                .background(
+                                    GeometryReader { proxy in
+                                        Color.clear
+                                            .preference(key: TodayCountWidthKey.self, value: proxy.size.width)
                                     }
-                                    .offset(y: 2)
-                                }
-                            }
+                                )
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
+                        .onPreferenceChange(TodayCountWidthKey.self) { todayCountTextWidth = $0 }
+                        .onPreferenceChange(TodayDeltaWidthKey.self) { todayDeltaWidth = $0 }
 
-                            // Total lifetime count
-                            let lifetimeTotal = allItems.reduce(0) { $0 + $1.count }
-                            Text("\(lifetimeTotal.formatted())")
+                        VStack(spacing: 1) {
+                            Text(oldestMissedTargetInfo.key == nil ? "-" : "For \(oldestMissedTargetInfo.dateLine)")
                                 .font(.system(size: 12, weight: .regular))
                                 .foregroundColor(.gray)
                         }
                     }
-                    .id("todayCard")
-
-                    // Card 2: Time Left
-                    StatCard(title: remainingLabel, titleColor: appTheme.primaryTextColor) {
-                        Text(remainingFormatted)
-                            .font(.system(size: 62, weight: .heavy, design: .rounded))
-                            .foregroundColor(.clear)
-                            .overlay(
-                                LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                    .mask(
-                                        Text(remainingFormatted)
-                                            .font(.system(size: 62, weight: .heavy, design: .rounded))
-                                    )
-                            )
-                    }
-                    .id("timeCard")
-
-                    // Card 3: Session
-                    StatCard(title: "Session", titleColor: appTheme.primaryTextColor) {
-                        Text(sessionDurationFormatted)
-                            .font(.system(size: 62, weight: .heavy, design: .rounded))
-                            .foregroundColor(.clear)
-                            .overlay(
-                                LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                    .mask(
-                                        Text(sessionDurationFormatted)
-                                            .font(.system(size: 62, weight: .heavy, design: .rounded))
-                                    )
-                            )
-                    }
-                    .id("sessionCard")
                 }
-                .padding(.horizontal, 6)
-                .scrollTargetLayout()
+                Spacer(minLength: 0)
             }
-            .scrollTargetBehavior(.viewAligned)
-            .frame(height: 140)
-            .onAppear {
-                // Center the Today card by default
-                withAnimation(.none) {
-                    proxy.scrollTo("todayCard", anchor: .center)
+            .frame(maxWidth: .infinity)
+            .tag(0)
+
+            HStack {
+                Spacer(minLength: 0)
+                StatCard(title: "Today Hits", titleColor: appTheme.primaryTextColor) {
+                    VStack(spacing: 4) {
+                        ZStack {
+                            let countString = "\(todayCount)"
+                            let digitCount = countString.count
+                            let fontSize: CGFloat = digitCount <= 3 ? 62 : (digitCount == 4 ? 52 : 45)
+
+                            Text(countString)
+                                .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                                .foregroundColor(.clear)
+                                .fixedSize()
+                                .overlay(
+                                    LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                        .mask(
+                                            Text(countString)
+                                                .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                                        )
+                                )
+                                .background(
+                                    GeometryReader { proxy in
+                                        Color.clear
+                                            .preference(key: TodayCountWidthKey.self, value: proxy.size.width)
+                                    }
+                                )
+                                .frame(maxWidth: .infinity, alignment: .center)
+
+                            if yesterdayCount > 0 {
+                                let isUp = statPercentString.hasPrefix("+")
+                                let percentColor: Color = isUp ? .green : .red
+                                let numberOnly = statPercentString.replacingOccurrences(of: "%", with: "")
+
+                                VStack(spacing: 0) {
+                                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                                        Text(numberOnly)
+                                            .font(.system(size: 18, weight: .bold))
+                                            .foregroundColor(percentColor)
+                                            .fixedSize()
+                                        Text("%")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .baselineOffset(4)
+                                            .foregroundColor(percentColor)
+                                    }
+                                    Image(systemName: isUp ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
+                                        .font(.system(size: 18, weight: .bold))
+                                        .foregroundColor(percentColor)
+                                }
+                                .offset(y: 2)
+                                .background(
+                                    GeometryReader { proxy in
+                                        Color.clear
+                                            .preference(key: TodayDeltaWidthKey.self, value: proxy.size.width)
+                                    }
+                                )
+                                .offset(x: (todayCountTextWidth / 2) + (todayDeltaWidth / 2) + 6)
+                            }
+                        }
+                        .onPreferenceChange(TodayCountWidthKey.self) { todayCountTextWidth = $0 }
+                        .onPreferenceChange(TodayDeltaWidthKey.self) { todayDeltaWidth = $0 }
+
+                        let lifetimeTotal = allItems.reduce(0) { $0 + $1.count }
+                        Text("\(lifetimeTotal.formatted())")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(.gray)
+                    }
                 }
+                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity)
+            .tag(1)
+
+            HStack {
+                Spacer(minLength: 0)
+                StatCard(title: remainingLabel, titleColor: appTheme.primaryTextColor) {
+                    Text(remainingFormatted)
+                        .font(.system(size: 62, weight: .heavy, design: .rounded))
+                        .foregroundColor(.clear)
+                        .overlay(
+                            LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                .mask(
+                                    Text(remainingFormatted)
+                                        .font(.system(size: 62, weight: .heavy, design: .rounded))
+                                )
+                        )
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity)
+            .tag(2)
+
+            HStack {
+                Spacer(minLength: 0)
+                StatCard(title: "Session", titleColor: appTheme.primaryTextColor) {
+                    Text(sessionDurationFormatted)
+                        .font(.system(size: 62, weight: .heavy, design: .rounded))
+                        .foregroundColor(.clear)
+                        .overlay(
+                            LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                .mask(
+                                    Text(sessionDurationFormatted)
+                                        .font(.system(size: 62, weight: .heavy, design: .rounded))
+                                )
+                        )
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity)
+            .tag(3)
         }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: 140)
+        .onAppear { statsCardPage = 0 }
     }
 
     @ViewBuilder
@@ -704,23 +815,7 @@ struct CounterView: View {
     private var bottomNavigationOverlay: some View {
         VStack(alignment: .center, spacing: 2) {
             HStack(alignment: .center, spacing: 0) {
-                Button(action: { if let prevID = pickPrevID() { routeToCounter(id: prevID) } }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 50, weight: .heavy))
-                        .foregroundColor(appTheme.accentArrowColor)
-                        .offset(y: 10)
-                        .padding(.leading, 16)
-                }
-                Spacer(minLength: 8)
                 statsCardsRow
-                Spacer(minLength: 8)
-                Button(action: { if let nextID = pickNextID() { routeToCounter(id: nextID) } }) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 50, weight: .heavy))
-                        .foregroundColor(appTheme.accentArrowColor)
-                        .offset(y: 10)
-                        .padding(.trailing, 16)
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -1497,11 +1592,106 @@ if let url = URL(string: "https://chat.openai.com/?model=gpt-4o&q=\(encoded)") ?
         return [:]
     }
 
+    private func loadTodayWorkHistory() -> [String: Int] {
+        if let data = todayWorkHistoryJSON.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            return decoded
+        }
+        return [:]
+    }
+
     private func appendStudyHistory(date: Date, increment: Int) {
         var history = loadStudyHistory()
         let key = dayKey(from: date)
         let current = history[key] ?? 0
         history[key] = max(0, current + increment)
+        saveStudyHistory(history)
+    }
+
+    private func resolveBackfillActiveDayKey(history: [String: Int]) -> String? {
+        let target = max(1, dailyTargetHits)
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: startDate)
+        let end = cal.startOfDay(for: Date())
+        guard start <= end else { return nil }
+
+        if !backfillActiveDayKey.isEmpty {
+            let hits = history[backfillActiveDayKey] ?? 0
+            if hits < target {
+                return backfillActiveDayKey
+            }
+        }
+
+        var current = start
+        while current <= end {
+            let key = dayKey(from: current)
+            let hits = history[key] ?? 0
+            if hits < target {
+                return key
+            }
+            guard let next = cal.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+        }
+        return nil
+    }
+
+    private func applyBackfillIncrement(_ increment: Int) {
+        if increment == 0 { return }
+
+        let target = max(1, dailyTargetHits)
+        var history = loadStudyHistory()
+
+        guard let startKey = resolveBackfillActiveDayKey(history: history) else {
+            return
+        }
+        backfillActiveDayKey = startKey
+
+        if increment < 0 {
+            let currentHits = history[startKey] ?? 0
+            history[startKey] = max(0, currentHits + increment)
+            saveStudyHistory(history)
+            return
+        }
+
+        let cal = Calendar.current
+        var remainingInc = increment
+        var activeKey: String? = startKey
+
+        while remainingInc > 0, let key = activeKey {
+            let currentHits = history[key] ?? 0
+            let need = max(0, target - currentHits)
+            if need == 0 {
+                if let d = Formatters.day.date(from: key),
+                   let next = cal.date(byAdding: .day, value: 1, to: d) {
+                    let nextKey = dayKey(from: next)
+                    backfillActiveDayKey = nextKey
+                    activeKey = resolveBackfillActiveDayKey(history: history)
+                    if let ak = activeKey { backfillActiveDayKey = ak } else { backfillActiveDayKey = "" }
+                } else {
+                    activeKey = nil
+                    backfillActiveDayKey = ""
+                }
+                continue
+            }
+
+            let add = min(need, remainingInc)
+            history[key] = currentHits + add
+            remainingInc -= add
+
+            if (history[key] ?? 0) >= target {
+                if let d = Formatters.day.date(from: key),
+                   let next = cal.date(byAdding: .day, value: 1, to: d) {
+                    let nextKey = dayKey(from: next)
+                    backfillActiveDayKey = nextKey
+                    activeKey = resolveBackfillActiveDayKey(history: history)
+                    if let ak = activeKey { backfillActiveDayKey = ak } else { backfillActiveDayKey = "" }
+                } else {
+                    activeKey = nil
+                    backfillActiveDayKey = ""
+                }
+            }
+        }
+
         saveStudyHistory(history)
     }
 
@@ -1514,18 +1704,20 @@ if let url = URL(string: "https://chat.openai.com/?model=gpt-4o&q=\(encoded)") ?
             // New day: reset base and set first increment
             todayDate = Formatters.iso.string(from: now)
             todayCount = max(0, increment)
-            appendStudyHistory(date: now, increment: todayCount)
+            appendTodayWorkHistory(date: now, increment: todayCount)
+            applyBackfillIncrement(todayCount)
         } else {
             todayCount = max(0, todayCount + increment)
-            appendStudyHistory(date: now, increment: increment)
+            appendTodayWorkHistory(date: now, increment: increment)
+            applyBackfillIncrement(increment)
         }
     }
 
     private func saveStudyHistory(_ history: [String: Int]) {
-        // Keep last 400 days to support yearly/all-time views
+        // Keep last 1200 days to support longer history views
         let now = Date()
         let cal = Calendar.current
-        let keys: [String] = (0..<400).compactMap { off in
+        let keys: [String] = (0..<1200).compactMap { off in
             guard let d = cal.date(byAdding: .day, value: -off, to: now) else { return nil }
             return dayKey(from: d)
         }
@@ -1534,6 +1726,28 @@ if let url = URL(string: "https://chat.openai.com/?model=gpt-4o&q=\(encoded)") ?
            let s = String(data: data, encoding: .utf8) {
             studyHistoryJSON = s
         }
+    }
+
+    private func saveTodayWorkHistory(_ history: [String: Int]) {
+        let now = Date()
+        let cal = Calendar.current
+        let keys: [String] = (0..<1200).compactMap { off in
+            guard let d = cal.date(byAdding: .day, value: -off, to: now) else { return nil }
+            return dayKey(from: d)
+        }
+        let trimmed = history.filter { keys.contains($0.key) }
+        if let data = try? JSONEncoder().encode(trimmed),
+           let s = String(data: data, encoding: .utf8) {
+            todayWorkHistoryJSON = s
+        }
+    }
+
+    private func appendTodayWorkHistory(date: Date, increment: Int) {
+        var history = loadTodayWorkHistory()
+        let key = dayKey(from: date)
+        let current = history[key] ?? 0
+        history[key] = max(0, current + increment)
+        saveTodayWorkHistory(history)
     }
 
   

@@ -25,8 +25,12 @@ struct IntroView: View {
     // Theme & navigation
     @AppStorage("appTheme") private var appTheme: AppTheme = .light
     @State private var showCategories = false
-    @State private var showDailyStats = false
+    @State private var showNotes = false
+    @State private var showDailyListCalendar = false
+    @State private var shouldStartStudyFiltered = false
     @State private var resumeGlow = false
+    @State private var hitsNumberWidth: CGFloat = 0
+    @State private var hitsSuperscriptWidth: CGFloat = 0
     @ObservedObject private var notificationEngine = NotificationEngine.shared
     // Boost selection
     @AppStorage("boostType") private var boostTypeRaw: String = BoostType.mins.rawValue
@@ -37,9 +41,17 @@ struct IntroView: View {
     @State private var selectedCounts: Int = 5000
     @State private var selectedVocabs: Int = 10
     @State private var statPage: Int = 0
+    @State private var quickStartPage: Int = 1
 
-    // Study-start date (you can expose this later in Settings)
-    private let startDate: Date = Calendar.current.date(from: DateComponents(year: 2023, month: 6, day: 19)) ?? Date()
+    @AppStorage("studyStartDateTimestamp") private var studyStartDateTimestamp: Double = 0
+
+    private var startDate: Date {
+        let fallback = Calendar.current.date(from: DateComponents(year: 2023, month: 6, day: 19)) ?? Date()
+        if studyStartDateTimestamp > 0 {
+            return Date(timeIntervalSince1970: studyStartDateTimestamp)
+        }
+        return fallback
+    }
 
     // Derived numbers
     private var daysStudied: Int {
@@ -47,7 +59,99 @@ struct IntroView: View {
     }
     @AppStorage("todayCount") private var todayCount: Int = 0
     @AppStorage("studyHistoryJSON") private var studyHistoryJSON: String = ""
+    @AppStorage("dailyTargetHits") private var dailyTargetHits: Int = 5000
     private var averagePerDay: Int { max(1, totalCount / daysStudied) }
+
+    private var decodedStudyHistory: [String: Int] {
+        guard let data = studyHistoryJSON.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String: Int].self, from: data)
+        else {
+            return [:]
+        }
+        return decoded
+    }
+
+    private func dayKey(from date: Date) -> String {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
+
+    private func dayLabel(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateStyle = .medium
+        return f.string(from: date)
+    }
+
+    private func formatWithComma(_ value: Int) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    private struct HitsNumberWidthKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = nextValue()
+        }
+    }
+
+    private struct HitsSuperscriptWidthKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = nextValue()
+        }
+    }
+
+    private var oldestMissedTargetDate: Date? {
+        let target = max(1, dailyTargetHits)
+
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: startDate)
+        let end = cal.startOfDay(for: Date())
+        guard start <= end else { return nil }
+
+        var current = start
+        while current <= end {
+            let key = dayKey(from: current)
+            let hits = decodedStudyHistory[key] ?? 0
+            if hits < target {
+                return current
+            }
+            guard let next = cal.date(byAdding: .day, value: 1, to: current) else {
+                break
+            }
+            current = next
+        }
+        return nil
+    }
+
+    private var missedTargetDaysCount: Int {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: startDate)
+        let end = cal.startOfDay(for: Date())
+        if start > end { return 0 }
+
+        let target = max(1, dailyTargetHits)
+        var current = start
+        var missed = 0
+        while current <= end {
+            let key = dayKey(from: current)
+            let hits = decodedStudyHistory[key] ?? 0
+            if hits < target {
+                missed += 1
+            }
+            guard let next = cal.date(byAdding: .day, value: 1, to: current) else {
+                break
+            }
+            current = next
+        }
+        return missed
+    }
     
     // Calculate yesterday's count and percentage change
     private var yesterdayCount: Int {
@@ -90,109 +194,243 @@ struct IntroView: View {
                         .font(.title3.weight(.light))
                         .foregroundColor(appTheme.welcomeMessageColor)
                 }
+                .padding(.top, -16)
 
                 // -------------------------------------------------
                 // 2. Quick-Start Card
                 // -------------------------------------------------
-                VStack(spacing: 20) {
-                    // Segmented picker for boost type
-                    Picker("Boost Type", selection: $selectedBoostType) {
-                        Text("Minutes").tag(Optional(BoostType.mins))
-                        Text("Hits").tag(Optional(BoostType.counts))
-                        Text("Vocabs").tag(Optional(BoostType.vocabs))
-                    }
-                    .pickerStyle(.segmented)
-                     .tint(.white)
-                     .foregroundColor(.white)
-                     .background(
-                         LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
-                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                     )
-                    .padding(.horizontal)
+                ZStack(alignment: .top) {
+                    TabView(selection: $quickStartPage) {
+                        VStack(spacing: 20) {
+                        Picker("Boost Type", selection: $selectedBoostType) {
+                            Text("Minutes").tag(Optional(BoostType.mins))
+                            Text("Hits").tag(Optional(BoostType.counts))
+                            Text("Vocabs").tag(Optional(BoostType.vocabs))
+                        }
+                        .pickerStyle(.segmented)
+                         .tint(.white)
+                         .foregroundColor(.white)
+                         .background(
+                             LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                         )
+                        .padding(.horizontal)
 
-                    // Wheel pickers (only active one fully opaque)
-                    HStack(spacing: 24) {
-                        pickerColumn(label: "Mins", values: [60,40,30,20], binding: $selectedMins, type: .mins)
-                        pickerColumn(label: "Hits", values: [9000,7000,5000,3000], binding: $selectedCounts, type: .counts)
-                        pickerColumn(label: "Vocabs", values: [20,15,10,5], binding: $selectedVocabs, type: .vocabs)
-                    }
-                    .frame(height: 80)
+                        HStack(spacing: 24) {
+                            pickerColumn(label: "Mins", values: [60,40,30,20], binding: $selectedMins, type: .mins)
+                            pickerColumn(label: "Hits", values: [9000,7000,5000,3000], binding: $selectedCounts, type: .counts)
+                            pickerColumn(label: "Vocabs", values: [20,15,10,5], binding: $selectedVocabs, type: .vocabs)
+                        }
+                        .frame(height: 80)
 
-                    // Start & Resume buttons
-                    HStack(spacing: 12) {
-                        // both buttons share horizontal padding
-                    
-                        Button {
-                            playConfirmFeedback()
-                            // Persist boost selections
-                            boostTypeRaw = (selectedBoostType ?? .mins).rawValue
-                            switch (selectedBoostType ?? .mins) {
-                            case .mins:    boostValue = selectedMins * 60
-                            case .counts:  boostValue = selectedCounts
-                            case .vocabs:  boostValue = selectedVocabs
+                        HStack(spacing: 12) {
+                            Button {
+                                playConfirmFeedback()
+                                boostTypeRaw = (selectedBoostType ?? .mins).rawValue
+                                switch (selectedBoostType ?? .mins) {
+                                case .mins:    boostValue = selectedMins * 60
+                                case .counts:  boostValue = selectedCounts
+                                case .vocabs:  boostValue = selectedVocabs
+                                }
+                                remainingSeconds = boostValue
+                                remainingTimestamp = Date().timeIntervalSince1970
+                                if selectedBoostType != nil {
+                                    router.openContent()
+                                }
+                            } label: {
+                                Text("Start Session")
+                                    .font(.title3.bold())
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(
+                                        LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    )
+                                    .foregroundColor(.white)
+                                    .cornerRadius(16)
+                                    .shadow(radius: 6)
+                                    .padding(.leading, 16)
                             }
-                            remainingSeconds = boostValue
-                            remainingTimestamp = Date().timeIntervalSince1970
-                            if selectedBoostType != nil {
-                                router.openContent()
+                            .opacity(selectedBoostType == nil ? 0.5 : 1)
+
+                            Button {
+                                sessionPaused = false
+                                if let uuid = UUID(uuidString: storedLastVocabID) {
+                                    router.openCounter(id: uuid)
+                                } else {
+                                    router.openContent()
+                                }
+                            } label: {
+                                Text("Resume")
+                                    .font(.title3.bold())
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(
+                                        LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    )
+                                    .foregroundColor(.white)
+                                    .cornerRadius(16)
+                                    .shadow(color: Color.blue.opacity(resumeGlow ? 0.7 : 0.25), radius: resumeGlow ? 16 : 6, x: 0, y: 0)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                            .stroke(LinearGradient(colors: [.purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 2)
+                                            .blur(radius: resumeGlow ? 8 : 2)
+                                            .opacity(resumeGlow ? 0.9 : 0.3)
+                                            .blendMode(.plusLighter)
+                                    )
+                                    .padding(.trailing, 16)
                             }
-                        } label: {
-                            Text("Start Session")
+                            .onAppear {
+                                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                                    resumeGlow = true
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 24)
+                    .frame(height: 280)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                    .shadow(color: .black.opacity(0.25), radius: 15, y: 5)
+                    .padding(.horizontal, 20)
+                        .tag(0)
+
+                        VStack(spacing: 6) {
+                        Spacer()
+
+                        // Neon gradient colors (same as StatCard)
+                        let neonColors: [Color] = [
+                            Color(red:0.99, green:0.24, blue:0.38),
+                            Color(red:0.91, green:0.13, blue:0.49),
+                            Color(red:0.55, green:0.17, blue:0.98),
+                            Color(red:0.2, green:0.56, blue:0.93),
+                            Color(red:0.96, green:0.76, blue:0.27),
+                            Color(red:0.99, green:0.24, blue:0.38)
+                        ]
+
+                        let hitsNumber = formatWithComma(dailyTargetHits)
+                        let dateLine = oldestMissedTargetDate.map(dayLabel) ?? "-"
+                        let numberText = Text(hitsNumber)
+                            .font(.system(size: 54, weight: .heavy, design: .rounded))
+                        let superscriptText = Text(" Hits for")
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
+
+                        VStack(spacing: 6) {
+                            Text("Study")
+                                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                                .foregroundColor(.gray)
+                                .multilineTextAlignment(.center)
+
+                            ZStack {
+                                numberText
+                                    .foregroundColor(.clear)
+                                    .overlay(
+                                        AngularGradient(gradient: Gradient(colors: neonColors), center: .center)
+                                            .mask(numberText)
+                                    )
+                                    .background(
+                                        GeometryReader { geo in
+                                            Color.clear.preference(key: HitsNumberWidthKey.self, value: geo.size.width)
+                                        }
+                                    )
+                                    .onPreferenceChange(HitsNumberWidthKey.self) { hitsNumberWidth = $0 }
+
+                                superscriptText
+                                    .foregroundColor(.clear)
+                                    .overlay(
+                                        AngularGradient(gradient: Gradient(colors: neonColors), center: .center)
+                                            .mask(superscriptText)
+                                    )
+                                    .background(
+                                        GeometryReader { geo in
+                                            Color.clear.preference(key: HitsSuperscriptWidthKey.self, value: geo.size.width)
+                                        }
+                                    )
+                                    .onPreferenceChange(HitsSuperscriptWidthKey.self) { hitsSuperscriptWidth = $0 }
+                                    .offset(x: (hitsNumberWidth / 2) + (hitsSuperscriptWidth / 2) + 8, y: -16)
+                            }
+                            .multilineTextAlignment(.center)
+                            .shadow(color: Color(red:0.99, green:0.24, blue:0.38).opacity(0.7), radius: 18, x: 0, y: 0)
+                            .shadow(color: Color(red:0.2, green:0.56, blue:0.93).opacity(0.35), radius: 26, x: 0, y: 0)
+
+                            Text(dateLine)
+                                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                                .foregroundColor(.gray)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(.ultraThinMaterial)
+                                )
+
+                            if missedTargetDaysCount > 0 {
+                                let dayWord = missedTargetDaysCount == 1 ? "day" : "days"
+                                Text("\(formatWithComma(missedTargetDaysCount)) \(dayWord) you missed the target")
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+
+                        Color.clear.frame(height: 0)
+
+                        HStack(spacing: 12) {
+                            Text("Daily List")
                                 .font(.title3.bold())
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
-                                
                                 .background(
                                     LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
                                 )
                                 .foregroundColor(.white)
                                 .cornerRadius(16)
                                 .shadow(radius: 6)
-                            .padding(.leading, 16)
-                        }
-                        .opacity(selectedBoostType == nil ? 0.5 : 1)
+                                .padding(.leading, 16)
+                                .onTapGesture {
+                                    showDailyListCalendar = true
+                                }
 
-                        Button {
-                            sessionPaused = false
-                            if let uuid = UUID(uuidString: storedLastVocabID) {
-                                router.openCounter(id: uuid)
-                            } else {
-                                router.openContent()
-                            }
-                        } label: {
-                            Text("Resume")
+                            Text("Start Study")
                                 .font(.title3.bold())
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
-                                
                                 .background(
                                     LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
                                 )
                                 .foregroundColor(.white)
                                 .cornerRadius(16)
-                                // Pulsing glow animation
-                                .shadow(color: Color.blue.opacity(resumeGlow ? 0.7 : 0.25), radius: resumeGlow ? 16 : 6, x: 0, y: 0)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .stroke(LinearGradient(colors: [.purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 2)
-                                        .blur(radius: resumeGlow ? 8 : 2)
-                                        .opacity(resumeGlow ? 0.9 : 0.3)
-                                        .blendMode(.plusLighter)
-                                )
+                                .shadow(radius: 6)
                                 .padding(.trailing, 16)
-                        }
-                        .onAppear {
-                            // Start pulsing immediately on IntroView
-                            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                                resumeGlow = true
-                            }
+                                .onTapGesture {
+                                    sessionPaused = false
+                                    if let uuid = UUID(uuidString: storedLastVocabID) {
+                                        router.openCounter(id: uuid)
+                                    } else {
+                                        router.openContent()
+                                    }
+                                }
                         }
                     }
+                    .padding(.vertical, 24)
+                    .frame(height: 280)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                    .shadow(color: .black.opacity(0.25), radius: 15, y: 5)
+                    .padding(.horizontal, 20)
+                        .tag(1)
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .frame(height: 280)
+                    .onAppear { quickStartPage = 1 }
+
+                    HStack(spacing: 8) {
+                        ForEach(0..<2, id: \.self) { idx in
+                            Circle()
+                                .fill(Color.gray.opacity(idx == quickStartPage ? 0.85 : 0.25))
+                                .frame(width: 6, height: 6)
+                        }
+                    }
+                    .offset(y: -10)
+                    .allowsHitTesting(false)
                 }
-                .padding(.vertical, 24)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-                .shadow(color: .black.opacity(0.25), radius: 15, y: 5)
-                .padding(.horizontal, 20)
 
                 // -------------------------------------------------
                 // 3. Status Breakdown – Doughnut Pie
@@ -257,10 +495,10 @@ struct IntroView: View {
                     }) {
                         actionButton(icon: "bolt.fill", title: "Daily Quiz")
                     }
-                    actionButton(icon: "chart.bar.fill", title: "Daily Stats")
+                    actionButton(icon: "waveform", title: "Notes")
                         .onTapGesture {
                             playTapSound()
-                            showDailyStats = true
+                            showNotes = true
                         }
                     Button(action: {
                         playTapSound()
@@ -272,9 +510,8 @@ struct IntroView: View {
                 .foregroundColor(appTheme.primaryTextColor)
                 .font(.title3)
                 .padding(.top, -15)
-                .padding(.bottom, 20)
             }
-            .padding(.top, 20)
+            .padding(.top, 0)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         // Add a small spacer inset above the bottom safe area so the
@@ -285,10 +522,20 @@ struct IntroView: View {
          .navigationDestination(isPresented: $showCategories) {
              VocabCategoryView()
          }
-         .fullScreenCover(isPresented: $showDailyStats) {
-             DailyStatView()
-         }
-         .sheet(
+        .fullScreenCover(isPresented: $showNotes) {
+            NavigationStack {
+                AudioRecordingView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showNotes = false }
+                        }
+                    }
+            }
+        }
+        .fullScreenCover(isPresented: $showDailyListCalendar) {
+            CalendarProgressView()
+        }
+         .fullScreenCover(
             isPresented: Binding(
                 get: { router.sheet == .settings },
                 set: { isPresented in
@@ -301,6 +548,7 @@ struct IntroView: View {
             SettingsView()
          }
          .withNotificationBell()
+         .navigationBarTitleDisplayMode(.inline)
          .onAppear {
              // Request notification permission on first launch
              notificationEngine.requestPermission { granted in
@@ -420,18 +668,13 @@ struct IntroView: View {
             Color(red:0.99, green:0.24, blue:0.38)
         ]
 
-        // Count-up animation state
-        @State private var progress: Double = 0
-        @AppStorage("hasAnimatedStats") private var hasAnimatedStats: Bool = false
-
         var body: some View {
             VStack(spacing: -2) {
                 Text(title)
                     .font(.caption)
                     .foregroundColor(.gray)
 
-                // Display animated number
-                let displayValue = Int(Double(value) * progress)
+                let displayValue = value
                 Text("\(displayValue)")
                     .font(.system(size: big ? 54 : 45, weight: .heavy))
                     .foregroundColor(.clear)
@@ -451,17 +694,6 @@ struct IntroView: View {
                     .fill(.ultraThinMaterial)
             )
             .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-            .onAppear {
-                if !hasAnimatedStats {
-                    hasAnimatedStats = true
-                    progress = 0
-                    withAnimation(.easeOut(duration: 1.8)) {
-                        progress = 1
-                    }
-                } else {
-                    progress = 1 // immediate (animation already done previously)
-                }
-            }
         }
     }
 

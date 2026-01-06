@@ -231,7 +231,7 @@ struct SettingsView: View {
     }
 }
 
-private struct AudioRecordingView: View {
+struct AudioRecordingView: View {
     private struct RecordingItem: Identifiable, Equatable {
         let id: UUID
         let filename: String
@@ -249,7 +249,7 @@ private struct AudioRecordingView: View {
 
     private final class PlaybackController: NSObject, ObservableObject, AVAudioPlayerDelegate {
         @Published var playingRecordingID: UUID?
-        @Published var waveformHeights: [CGFloat] = Array(repeating: 0.18, count: 18)
+        @Published var waveformHeights: [CGFloat] = Array(repeating: 0.18, count: 48)
         private var player: AVAudioPlayer?
         private var meterTimer: Timer?
 
@@ -259,7 +259,7 @@ private struct AudioRecordingView: View {
             player?.stop()
             player = nil
             playingRecordingID = nil
-            waveformHeights = Array(repeating: 0.18, count: 18)
+            waveformHeights = Array(repeating: 0.18, count: 48)
         }
 
         func pause() {
@@ -267,7 +267,7 @@ private struct AudioRecordingView: View {
             meterTimer = nil
             player?.pause()
             playingRecordingID = nil
-            waveformHeights = Array(repeating: 0.18, count: 18)
+            waveformHeights = Array(repeating: 0.18, count: 48)
         }
 
         func play(url: URL, id: UUID) {
@@ -299,7 +299,7 @@ private struct AudioRecordingView: View {
                     updated.append(next)
 
                     DispatchQueue.main.async {
-                        withAnimation(.linear(duration: 0.05)) {
+                        withAnimation(.easeOut(duration: 0.06)) {
                             self.waveformHeights = updated
                         }
                     }
@@ -316,34 +316,55 @@ private struct AudioRecordingView: View {
 
     private struct WaveformBarsView: View {
         let heights: [CGFloat]
+        let isActive: Bool
 
         var body: some View {
-            HStack(spacing: 2) {
-                ForEach(heights.indices, id: \.self) { i in
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.accentColor)
-                        .frame(width: 3, height: 34 * heights[i])
+            GeometryReader { geo in
+                let count = max(1, heights.count)
+                let spacing: CGFloat = 2
+                let barWidth = max(2, (geo.size.width - spacing * CGFloat(count - 1)) / CGFloat(count))
+
+                HStack(alignment: .center, spacing: spacing) {
+                    ForEach(heights.indices, id: \.self) { i in
+                        let barHeight = max(4, geo.size.height * heights[i])
+                        Capsule()
+                            .fill(
+                                isActive
+                                    ? LinearGradient(
+                                        colors: [Color.accentColor.opacity(0.95), Color.accentColor.opacity(0.35)],
+                                        startPoint: .bottom,
+                                        endPoint: .top
+                                    )
+                                    : LinearGradient(
+                                        colors: [Color.secondary.opacity(0.35), Color.secondary.opacity(0.12)],
+                                        startPoint: .bottom,
+                                        endPoint: .top
+                                    )
+                            )
+                            .frame(width: barWidth, height: barHeight)
+                            .frame(height: geo.size.height, alignment: .center)
+                    }
                 }
             }
-            .frame(height: 34)
+            .frame(maxWidth: .infinity)
         }
     }
 
-    private struct WaveformLeadingView: View {
+    private struct WaveformFullWidthView: View {
         let isPlaying: Bool
-        let heights: [CGFloat]
+        let activeHeights: [CGFloat]
+        let idleHeights: [CGFloat]
 
         var body: some View {
-            ZStack {
-                if isPlaying {
-                    WaveformBarsView(heights: heights)
-                } else {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 32, weight: .regular))
-                        .foregroundColor(.accentColor)
-                }
-            }
-            .frame(width: 72, height: 44)
+            WaveformBarsView(heights: isPlaying ? activeHeights : idleHeights, isActive: isPlaying)
+                .frame(height: 44)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.secondary.opacity(isPlaying ? 0.16 : 0.08))
+                )
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -425,6 +446,34 @@ private struct AudioRecordingView: View {
             .replacingOccurrences(of: " ", with: "_")
     }
 
+    private func fnv1a64(_ input: String) -> UInt64 {
+        var hash: UInt64 = 1469598103934665603
+        for b in input.utf8 {
+            hash ^= UInt64(b)
+            hash &*= 1099511628211
+        }
+        return hash
+    }
+
+    private func idleWaveformHeights(for id: UUID, count: Int) -> [CGFloat] {
+        let seed = fnv1a64(id.uuidString)
+        var state = seed
+        func nextUnit() -> CGFloat {
+            state = state &* 6364136223846793005 &+ 1
+            let v = Double((state >> 33) & 0xFFFF) / Double(0xFFFF)
+            return CGFloat(v)
+        }
+
+        let n = max(8, count)
+        return (0..<n).map { i in
+            let t = CGFloat(i) / CGFloat(max(1, n - 1))
+            let envelope = 1.0 - abs(2.0 * t - 1.0)
+            let noise = 0.35 + (nextUnit() * 0.65)
+            let h = (0.18 + envelope * 0.62 * noise)
+            return max(0.12, min(0.95, h))
+        }
+    }
+
     private func fileURL(for item: RecordingItem) -> URL {
         recordingsDirectoryURL().appendingPathComponent(item.fileName)
     }
@@ -435,6 +484,20 @@ private struct AudioRecordingView: View {
 
     private var activeRecordings: [RecordingItem] {
         recordings.filter { !$0.isDone }
+    }
+
+    private var activeRecordingNumberByID: [UUID: Int] {
+        let sorted = activeRecordings.sorted { a, b in
+            if a.createdAt != b.createdAt {
+                return a.createdAt < b.createdAt
+            }
+            return a.filename < b.filename
+        }
+        var map: [UUID: Int] = [:]
+        for (idx, item) in sorted.enumerated() {
+            map[item.id] = idx + 1
+        }
+        return map
     }
 
     private func markDone(_ item: RecordingItem) {
@@ -498,33 +561,55 @@ private struct AudioRecordingView: View {
                 .monospacedDigit()
 
             if isRecording {
-                Button {
-                    let duration = recorder?.currentTime ?? 0
-                    recorder?.stop()
-                    recorder = nil
-                    isRecording = false
+                HStack(spacing: 12) {
+                    Button {
+                        recorder?.stop()
+                        recorder = nil
+                        isRecording = false
+                        secondsElapsed = 0
 
-                    if duration < minRecordingSeconds {
                         if let draft = recordingDraft {
                             let url = recordingsDirectoryURL().appendingPathComponent(draft.fileName)
                             try? FileManager.default.removeItem(at: url)
                         }
                         recordingDraft = nil
-                        return
+                    } label: {
+                        Label("Cancel", systemImage: "xmark")
+                            .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .foregroundColor(.red)
 
-                    if let draft = recordingDraft {
-                        recordings.insert(
-                            RecordingItem(id: draft.id, filename: draft.filename, createdAt: draft.createdAt, fileName: draft.fileName, isDone: false),
-                            at: 0
-                        )
+                    Button {
+                        let duration = recorder?.currentTime ?? 0
+                        recorder?.stop()
+                        recorder = nil
+                        isRecording = false
+                        secondsElapsed = 0
+
+                        if duration < minRecordingSeconds {
+                            if let draft = recordingDraft {
+                                let url = recordingsDirectoryURL().appendingPathComponent(draft.fileName)
+                                try? FileManager.default.removeItem(at: url)
+                            }
+                            recordingDraft = nil
+                            micPermissionError = "Recording too short."
+                            return
+                        }
+
+                        if let draft = recordingDraft {
+                            recordings.insert(
+                                RecordingItem(id: draft.id, filename: draft.filename, createdAt: draft.createdAt, fileName: draft.fileName, isDone: false),
+                                at: 0
+                            )
+                        }
+                        recordingDraft = nil
+                    } label: {
+                        Label("Save", systemImage: "checkmark")
+                            .frame(maxWidth: .infinity)
                     }
-                    recordingDraft = nil
-                } label: {
-                    Label("Stop", systemImage: "stop.fill")
-                        .frame(maxWidth: .infinity)
+                    .buttonStyle(PrimaryButtonStyle())
                 }
-                .buttonStyle(SecondaryButtonStyle())
             } else {
                 Button {
                     playback.stop()
@@ -580,8 +665,8 @@ private struct AudioRecordingView: View {
 
             if !activeRecordings.isEmpty {
                 List {
-                    Section("Recorded voice") {
-                        ForEach(Array(activeRecordings.enumerated()), id: \.element.id) { index, item in
+                    Section {
+                        ForEach(activeRecordings, id: \.id) { item in
                             Button {
                                 guard !(isRecording || isPreparingToRecord) else { return }
                                 let url = fileURL(for: item)
@@ -597,26 +682,29 @@ private struct AudioRecordingView: View {
                                     playback.play(url: url, id: item.id)
                                 }
                             } label: {
-                                HStack {
-                                    WaveformLeadingView(
+                                VStack(alignment: .leading, spacing: 8) {
+                                    WaveformFullWidthView(
                                         isPlaying: playback.playingRecordingID == item.id,
-                                        heights: playback.waveformHeights
+                                        activeHeights: playback.waveformHeights,
+                                        idleHeights: idleWaveformHeights(for: item.id, count: playback.waveformHeights.count)
                                     )
 
-                                    Text("\(index + 1)")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .frame(minWidth: 22, alignment: .trailing)
+                                    HStack {
+                                        Text("\(activeRecordingNumberByID[item.id] ?? 0)")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .frame(minWidth: 22, alignment: .trailing)
 
-                                    Text(item.filename)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                    Spacer()
-                                    Image(systemName: playback.playingRecordingID == item.id ? "pause.fill" : "play.fill")
-                                        .foregroundColor(.secondary)
+                                        Text(item.filename)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+
+                                        Spacer()
+                                    }
                                 }
-                                .frame(minHeight: 64)
-                                .padding(.vertical, 6)
+                                .frame(minHeight: 104)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
                             }
                             .buttonStyle(PlainButtonStyle())
                             .disabled(isRecording || isPreparingToRecord)
@@ -633,10 +721,9 @@ private struct AudioRecordingView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
-                .frame(maxHeight: 260)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
             }
-
-            Spacer()
         }
         .padding()
         .navigationTitle("")

@@ -95,6 +95,8 @@ struct DailyQuizView: View {
     // Quiz category inclusion map (JSON encoded in Settings)
     @AppStorage("quizCategoryMapJSON") private var quizCategoryMapJSON: String = ""
     @AppStorage("dailyQuizCoveredIDsJSON") private var dailyQuizCoveredIDsJSON: String = ""
+    @AppStorage("quizPassedIDsJSON") private var quizPassedIDsJSON: String = ""
+    @AppStorage("quizPassedThaiJSON") private var quizPassedThaiJSON: String = ""
 
     private func decodeCoveredIDs() -> Set<UUID> {
         guard !dailyQuizCoveredIDsJSON.isEmpty,
@@ -113,6 +115,50 @@ struct DailyQuizView: View {
             dailyQuizCoveredIDsJSON = s
         } else {
             dailyQuizCoveredIDsJSON = ""
+        }
+    }
+
+    private func decodePassedIDs() -> Set<UUID> {
+        guard !quizPassedIDsJSON.isEmpty,
+              let data = quizPassedIDsJSON.data(using: .utf8),
+              let raw = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return Set(raw.compactMap { UUID(uuidString: $0) })
+    }
+
+    private func encodePassedIDs(_ set: Set<UUID>) {
+        let raw = set.map { $0.uuidString }
+        if let data = try? JSONEncoder().encode(raw),
+           let s = String(data: data, encoding: .utf8) {
+            quizPassedIDsJSON = s
+            UserDefaults.standard.set(s, forKey: "quizPassedIDsJSON")
+        } else {
+            quizPassedIDsJSON = ""
+            UserDefaults.standard.removeObject(forKey: "quizPassedIDsJSON")
+        }
+    }
+
+    private func decodePassedThai() -> Set<String> {
+        guard !quizPassedThaiJSON.isEmpty,
+              let data = quizPassedThaiJSON.data(using: .utf8),
+              let raw = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return Set(raw)
+    }
+
+    private func encodePassedThai(_ set: Set<String>) {
+        let raw = Array(set)
+        if let data = try? JSONEncoder().encode(raw),
+           let s = String(data: data, encoding: .utf8) {
+            quizPassedThaiJSON = s
+            UserDefaults.standard.set(s, forKey: "quizPassedThaiJSON")
+        } else {
+            quizPassedThaiJSON = ""
+            UserDefaults.standard.removeObject(forKey: "quizPassedThaiJSON")
         }
     }
 
@@ -458,7 +504,8 @@ struct DailyQuizView: View {
 
     private func generateQuiz() {
         // Base pool: valid entries (have Burmese). Category inclusion is controlled via Quiz Settings.
-        let base = loadCSV().filter {
+        let source = vocabStore.items.isEmpty ? loadCSV() : vocabStore.items
+        let base = source.filter {
             !($0.burmese ?? "").isEmpty
         }
         // Apply category inclusion from Quiz Settings
@@ -555,6 +602,19 @@ struct DailyQuizView: View {
             var covered = decodeCoveredIDs()
             covered.insert(question.vocabID)
             encodeCoveredIDs(covered)
+
+            var passed = decodePassedIDs()
+            passed.insert(question.vocabID)
+            encodePassedIDs(passed)
+
+            let norm: (String) -> String = { s in
+                s.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: .current)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            var passedThai = decodePassedThai()
+            passedThai.insert(norm(question.thai))
+            encodePassedThai(passedThai)
+
             // Play cheer sound after 0.25s delay for correct answer
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 SoundManager.playQuizSuccess()

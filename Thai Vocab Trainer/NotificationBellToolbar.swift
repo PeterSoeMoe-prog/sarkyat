@@ -29,11 +29,22 @@ struct NotificationBellButton: View {
 
 struct NotificationBellToolbar: ViewModifier {
     @State private var showNotifications = false
+    @State private var showCalendar = false
     @ObservedObject private var router = AppRouter.shared
 
     func body(content: Content) -> some View {
         content
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        showCalendar = true
+                    }) {
+                        Image(systemName: "calendar")
+                            .font(.title3)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Calendar")
+                }
                 // Centered + button in the navigation bar
                 ToolbarItem(placement: .principal) {
                     Button(action: {
@@ -54,6 +65,9 @@ struct NotificationBellToolbar: ViewModifier {
             }
             .fullScreenCover(isPresented: $showNotifications) {
                 NotificationListView()
+            }
+            .fullScreenCover(isPresented: $showCalendar) {
+                CalendarProgressView()
             }
     }
 }

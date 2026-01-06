@@ -302,6 +302,7 @@ struct ContentView: View {
     @State private var categoryToOpen: String = ""
 
     @State private var currentOption: Option = .queue
+    @State private var shouldStartStudyFiltered = false
     @EnvironmentObject var theme: ThemeManager
     @AppStorage("remainingSeconds") private var remainingSeconds: Int = 0
     @AppStorage("remainingTimestamp") private var remainingTimestamp: Double = 0
@@ -334,9 +335,34 @@ struct ContentView: View {
     @State private var shareURL: URL? = nil
     @State private var showingShare = false
 
+    @AppStorage("quizPassedIDsJSON") private var quizPassedIDsJSON: String = ""
+    @AppStorage("quizPassedThaiJSON") private var quizPassedThaiJSON: String = ""
+
+
+    private func decodeQuizPassedIDs() -> Set<UUID> {
+        let rawString = UserDefaults.standard.string(forKey: "quizPassedIDsJSON") ?? quizPassedIDsJSON
+        guard !rawString.isEmpty,
+              let data = rawString.data(using: .utf8),
+              let raw = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return Set(raw.compactMap { UUID(uuidString: $0) })
+    }
+
+    private func decodeQuizPassedThai() -> Set<String> {
+        let rawString = UserDefaults.standard.string(forKey: "quizPassedThaiJSON") ?? quizPassedThaiJSON
+        guard !rawString.isEmpty,
+              let data = rawString.data(using: .utf8),
+              let raw = try? JSONDecoder().decode([String].self, from: data)
+        else {
+            return []
+        }
+        return Set(raw)
+    }
 
     enum Option: CaseIterable, Identifiable {
-        case all, recent, queue, drill, ready
+        case all, recent, queue, drill, ready, quized
 
         var id: Self { self }
         
@@ -347,12 +373,13 @@ struct ContentView: View {
             case .queue: return "😫 Queue"
             case .drill: return "🔥 Drill"
             case .ready: return "💎 Ready"
+            case .quized: return "✅ Quized"
             }
         }
 
         var status: VocabularyStatus? {
             switch self {
-            case .all, .recent: return nil
+            case .all, .recent, .quized: return nil
             case .queue: return .queue
             case .drill: return .drill
             case .ready: return .ready
@@ -407,7 +434,11 @@ struct ContentView: View {
                         }
                     )
                 }
-                .sheet(isPresented: $showSettingsSheet) {
+                .fullScreenCover(isPresented: $showSettingsSheet, onDismiss: {
+                    if case .settings = router.sheet {
+                        router.dismissSheet()
+                    }
+                }) {
                     SettingsView()
                 }
                 .fullScreenCover(isPresented: $showDailyQuiz, onDismiss: {
@@ -561,7 +592,9 @@ struct ContentView: View {
                 resumeAction: {
                     resumeSession()
                     playTapSound()
-                }
+                },
+                alwaysShowSecondary: currentOption == .quized,
+                showCategoryLabel: currentOption != .quized
             )
             .environmentObject(ttsPlayer)
             .listStyle(PlainListStyle())
@@ -678,7 +711,22 @@ struct ContentView: View {
     }
 
     private var filterButtons: some View {
-        HStack(spacing: 12) {
+        let currentOptionButtonText: String = {
+            if currentOption == .quized {
+                let passedIDs = decodeQuizPassedIDs()
+                let passedThai = decodeQuizPassedThai()
+                let count = items.reduce(0) { acc, item in
+                    if passedIDs.contains(item.id) { return acc + 1 }
+                    let normThai = normalized(item.thai.trimmingCharacters(in: .whitespacesAndNewlines))
+                    if passedThai.contains(normThai) { return acc + 1 }
+                    return acc
+                }
+                return "✅ Quized \(count)"
+            }
+            return currentOption.label
+        }()
+
+        return HStack(spacing: 12) {
             Spacer()
             Button {
                 showThaiPrimary.toggle()
@@ -700,7 +748,7 @@ struct ContentView: View {
                     filterItems()
                     playTapSound()
                 } label: {
-                    Text(currentOption.label)
+                    Text(currentOptionButtonText)
                         .padding(6)
                 }
             } else {
@@ -809,14 +857,27 @@ struct ContentView: View {
         isImporting = false
         showingShare = false
 
-        if items.contains(where: { $0.status == .queue }) {
-            currentOption = .queue
-        } else if items.contains(where: { $0.status == .drill }) {
-            currentOption = .drill
-        } else if items.contains(where: { $0.status == .ready }) {
-            currentOption = .ready
+        if shouldStartStudyFiltered {
+            // Prioritize drill, then queue, then all for Start Study flow
+            if items.contains(where: { $0.status == .drill }) {
+                currentOption = .drill
+            } else if items.contains(where: { $0.status == .queue }) {
+                currentOption = .queue
+            } else {
+                currentOption = .all
+            }
+            shouldStartStudyFiltered = false // consume the flag
         } else {
-            currentOption = .all
+            // Normal default logic
+            if items.contains(where: { $0.status == .queue }) {
+                currentOption = .queue
+            } else if items.contains(where: { $0.status == .drill }) {
+                currentOption = .drill
+            } else if items.contains(where: { $0.status == .ready }) {
+                currentOption = .ready
+            } else {
+                currentOption = .all
+            }
         }
         selectedStatus = currentOption.status
         filterItems()
@@ -958,6 +1019,8 @@ struct ContentView: View {
         let sourceItems = items // copy the value type array reference
         let recentOrder = RecentCountRecorder.shared.recentIDs()
         let recentRank: [UUID: Int] = Dictionary(uniqueKeysWithValues: recentOrder.enumerated().map { ($0.element, $0.offset) })
+        let passedIDs = decodeQuizPassedIDs()
+        let passedThai = decodeQuizPassedThai()
 
         DispatchQueue.global(qos: .userInitiated).async {
             let hasQuery = !q.isEmpty
@@ -965,6 +1028,12 @@ struct ContentView: View {
 
             // Filter
             var result = sourceItems.filter { item in
+                if capturedOption == .quized {
+                    if !passedIDs.contains(item.id) {
+                        let normThai = normalized(item.thai.trimmingCharacters(in: .whitespacesAndNewlines))
+                        if !passedThai.contains(normThai) { return false }
+                    }
+                }
                 if !hasQuery && capturedOption != .recent {
                     if let sel = capturedSelectedStatus, item.status != sel { return false }
                 }
@@ -1280,10 +1349,10 @@ struct AddEditWordSheet: View {
     }
 
     private func saveStudyHistory(_ history: [String: Int]) {
-        // Keep last 400 days
+        // Keep last 1200 days
         let now = Date()
         let cal = Calendar.current
-        let keys: [String] = (0..<400).compactMap { off in
+        let keys: [String] = (0..<1200).compactMap { off in
             guard let d = cal.date(byAdding: .day, value: -off, to: now) else { return nil }
             return dayKey(from: d)
         }
