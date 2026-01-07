@@ -296,6 +296,7 @@ struct ContentView: View {
     @State private var sortByCountAsc = true
     // Show Daily Quiz from bottom cluster
     @State private var showDailyQuiz: Bool = false
+    @State private var showNotes: Bool = false
     // Global TTS player for this screen
     @StateObject private var ttsPlayer = TTSQueuePlayer()
     @State private var showCategories = false
@@ -449,6 +450,16 @@ struct ContentView: View {
                     }
                 }) {
                     DailyQuizView()
+                }
+                .fullScreenCover(isPresented: $showNotes) {
+                    NavigationStack {
+                        AudioRecordingView()
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Done") { showNotes = false }
+                                }
+                            }
+                    }
                 }
                 .sheet(item: $counterItem, onDismiss: {
                     let dismissedId = lastCounterSheetId
@@ -622,7 +633,7 @@ struct ContentView: View {
                         BottomTabMock(
                             centerAction: { resumeSession() },
                             plusAction: {
-                                showAddSheet = true
+                                showNotes = true
                                 playTapSound()
                             },
                             categoryAction: {
@@ -1642,8 +1653,8 @@ struct BottomTabMock: View {
                     .shadow(color: Color.cyan.opacity(0.5), radius: 8, x: 0, y: 3)
                     .shadow(color: Color.green.opacity(0.35), radius: 12, x: 0, y: 6)
                     .overlay(
-                        Image(systemName: "plus")
-                            .font(.system(size: 30, weight: .bold))
+                        Image(systemName: "note.text")
+                            .font(.system(size: 26, weight: .bold))
                             .foregroundColor(.white)
                             .shadow(color: Color.white.opacity(0.6), radius: 2)
                     )
