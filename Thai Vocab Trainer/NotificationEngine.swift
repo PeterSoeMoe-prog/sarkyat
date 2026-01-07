@@ -105,6 +105,7 @@ class NotificationEngine: ObservableObject {
         
         pendingNotifications.append(notification)
         savePendingNotifications()
+        updateBadgeCount()
         
         // Schedule the actual system notification
         scheduleSystemNotification(for: notification)
@@ -159,6 +160,7 @@ class NotificationEngine: ObservableObject {
         
         pendingNotifications[index].isDelivered = true
         savePendingNotifications()
+        updateBadgeCount()
         
         return pendingNotifications[index].vocabID
     }
@@ -168,18 +170,21 @@ class NotificationEngine: ObservableObject {
     func clearDeliveredNotifications() {
         pendingNotifications.removeAll { $0.isDelivered }
         savePendingNotifications()
+        updateBadgeCount()
     }
     
     func cancelNotification(id: UUID) {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [id.uuidString])
         pendingNotifications.removeAll { $0.id == id }
         savePendingNotifications()
+        updateBadgeCount()
     }
     
     func cancelAllNotifications() {
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         pendingNotifications.removeAll()
         savePendingNotifications()
+        updateBadgeCount()
     }
     
     // MARK: - Persistence
@@ -202,7 +207,16 @@ class NotificationEngine: ObservableObject {
     
     func updateBadgeCount() {
         let undelivered = pendingNotifications.filter { !$0.isDelivered }.count
-        UNUserNotificationCenter.current().setBadgeCount(undelivered)
+
+        #if canImport(UIKit)
+        DispatchQueue.main.async {
+            UIApplication.shared.applicationIconBadgeNumber = undelivered
+        }
+        #endif
+
+        if #available(iOS 16.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(undelivered)
+        }
     }
 }
 

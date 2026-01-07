@@ -406,7 +406,10 @@ struct CounterView: View {
     @State private var showMenu: Bool = false
     // Daily Quiz sheet flag
     @State private var showQuiz: Bool = false
+    @State private var showCalendar: Bool = false
+    @State private var showNotes: Bool = false
     @State private var showCongrats: Bool = false
+    @State private var congratsTargetDayKey: String? = nil
     @State private var trophyScale: CGFloat = 1.0
     @State private var nextGlowPulse: Bool = false
 
@@ -433,6 +436,19 @@ struct CounterView: View {
         #endif
     }
   
+
+    private var congratsTargetDateLine: String? {
+        guard let key = congratsTargetDayKey else { return nil }
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MMM d, yyyy"
+        if let d = Formatters.day.date(from: key) {
+            return f.string(from: d)
+        }
+        return key
+    }
+
 
     let statusOptions = ["😫", "🔥", "💎"]
     let statusMapping: [VocabularyStatus] = [.queue, .drill, .ready]
@@ -572,6 +588,13 @@ struct CounterView: View {
         }
     }
 
+    private func statsMainFontSize(for text: String) -> CGFloat {
+        let digitCount = text.filter { $0.isNumber }.count
+        return digitCount <= 3 ? 62 : (digitCount == 4 ? 52 : 45)
+    }
+
+    private let statsSubtitleHeight: CGFloat = 14
+
     private var statsCardsRow: some View {
         TabView(selection: $statsCardPage) {
             HStack {
@@ -580,8 +603,7 @@ struct CounterView: View {
                     VStack(spacing: 4) {
                         ZStack {
                             let countString = oldestMissedTargetInfo.remaining.map { "\($0)" } ?? "-"
-                            let digitCount = countString.count
-                            let fontSize: CGFloat = digitCount <= 3 ? 62 : (digitCount == 4 ? 52 : 45)
+                            let fontSize = statsMainFontSize(for: countString)
 
                             Text(countString)
                                 .font(.system(size: fontSize, weight: .heavy, design: .rounded))
@@ -610,6 +632,7 @@ struct CounterView: View {
                                 .font(.system(size: 12, weight: .regular))
                                 .foregroundColor(.gray)
                         }
+                        .frame(height: statsSubtitleHeight)
                     }
                 }
                 Spacer(minLength: 0)
@@ -623,8 +646,7 @@ struct CounterView: View {
                     VStack(spacing: 4) {
                         ZStack {
                             let countString = "\(todayCount)"
-                            let digitCount = countString.count
-                            let fontSize: CGFloat = digitCount <= 3 ? 62 : (digitCount == 4 ? 52 : 45)
+                            let fontSize = statsMainFontSize(for: countString)
 
                             Text(countString)
                                 .font(.system(size: fontSize, weight: .heavy, design: .rounded))
@@ -682,6 +704,7 @@ struct CounterView: View {
                         Text("\(lifetimeTotal.formatted())")
                             .font(.system(size: 12, weight: .regular))
                             .foregroundColor(.gray)
+                            .frame(height: statsSubtitleHeight)
                     }
                 }
                 Spacer(minLength: 0)
@@ -694,8 +717,7 @@ struct CounterView: View {
                 StatCard(title: "Missed Days", titleColor: appTheme.primaryTextColor) {
                     VStack(spacing: 4) {
                         let countString = "\(missedTargetDaysCount)"
-                        let digitCount = countString.filter { $0.isNumber }.count
-                        let fontSize: CGFloat = digitCount <= 3 ? 62 : (digitCount == 4 ? 52 : 45)
+                        let fontSize = statsMainFontSize(for: countString)
                         let effectiveTarget = max(1, dailyTargetHits)
 
                         Text(countString)
@@ -709,12 +731,14 @@ struct CounterView: View {
                                             .font(.system(size: fontSize, weight: .heavy, design: .rounded))
                                     )
                             )
+                            .frame(maxWidth: .infinity, alignment: .center)
 
                         VStack(spacing: 1) {
                             Text("\(missedTargetQty.formatted()) Hits (\(effectiveTarget.formatted())/Day)")
                                 .font(.system(size: 12, weight: .regular))
                                 .foregroundColor(.gray)
                         }
+                        .frame(height: statsSubtitleHeight)
                     }
                 }
                 Spacer(minLength: 0)
@@ -725,16 +749,25 @@ struct CounterView: View {
             HStack {
                 Spacer(minLength: 0)
                 StatCard(title: remainingLabel, titleColor: appTheme.primaryTextColor) {
-                    Text(remainingFormatted)
-                        .font(.system(size: 62, weight: .heavy, design: .rounded))
-                        .foregroundColor(.clear)
-                        .overlay(
-                            LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                .mask(
-                                    Text(remainingFormatted)
-                                        .font(.system(size: 62, weight: .heavy, design: .rounded))
-                                )
-                        )
+                    VStack(spacing: 4) {
+                        let fontSize = statsMainFontSize(for: remainingFormatted)
+                        Text(remainingFormatted)
+                            .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                            .foregroundColor(.clear)
+                            .overlay(
+                                LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    .mask(
+                                        Text(remainingFormatted)
+                                            .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                                    )
+                            )
+                            .frame(maxWidth: .infinity, alignment: .center)
+
+                        Text(" ")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(.clear)
+                            .frame(height: statsSubtitleHeight)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -744,16 +777,25 @@ struct CounterView: View {
             HStack {
                 Spacer(minLength: 0)
                 StatCard(title: "Session", titleColor: appTheme.primaryTextColor) {
-                    Text(sessionDurationFormatted)
-                        .font(.system(size: 62, weight: .heavy, design: .rounded))
-                        .foregroundColor(.clear)
-                        .overlay(
-                            LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                .mask(
-                                    Text(sessionDurationFormatted)
-                                        .font(.system(size: 62, weight: .heavy, design: .rounded))
-                                )
-                        )
+                    VStack(spacing: 4) {
+                        let fontSize = statsMainFontSize(for: sessionDurationFormatted)
+                        Text(sessionDurationFormatted)
+                            .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                            .foregroundColor(.clear)
+                            .overlay(
+                                LinearGradient(colors: [.cyan, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    .mask(
+                                        Text(sessionDurationFormatted)
+                                            .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+                                    )
+                            )
+                            .frame(maxWidth: .infinity, alignment: .center)
+
+                        Text(" ")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(.clear)
+                            .frame(height: statsSubtitleHeight)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -836,6 +878,13 @@ struct CounterView: View {
                     .scaleEffect(trophyScale)
                 #endif
                 VStack(spacing: 10) {
+                    if let dateLine = congratsTargetDateLine {
+                        Text("You Hit Target for \(dateLine)")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white.opacity(0.92))
+                            .padding(.horizontal, 16)
+                            .multilineTextAlignment(.center)
+                    }
                     Text("Congratulations!")
                         .font(.system(size: 40, weight: .heavy))
                         .foregroundColor(.yellow)
@@ -844,9 +893,10 @@ struct CounterView: View {
                         Button(action: {
                             SoundManager.playSound(1104)
                             SoundManager.playVibration()
-                            showQuiz = true
+                            showCongrats = false
+                            showCalendar = true
                         }) {
-                            Text("Daily Quiz")
+                            Text("Check Daily Stat")
                                 .font(.system(size: 24, weight: .bold))
                                 .frame(width: buttonWidth)
                                 .padding(.vertical, 12)
@@ -858,10 +908,9 @@ struct CounterView: View {
                                 .shadow(radius: 8)
                         }
                         Button(action: {
-                            if let nextID = pickNextID() { routeToCounter(id: nextID) }
                             showCongrats = false
                         }) {
-                            Text("Next »")
+                            Text("Continue")
                                 .font(.system(size: 28, weight: .bold))
                                 .frame(width: buttonWidth)
                                 .padding(.vertical, 12)
@@ -903,7 +952,28 @@ struct CounterView: View {
     private var bottomNavigationOverlay: some View {
         VStack(alignment: .center, spacing: 2) {
             HStack(alignment: .center, spacing: 0) {
-                statsCardsRow
+                ZStack(alignment: .bottomTrailing) {
+                    statsCardsRow
+                        .frame(maxWidth: .infinity)
+                    Button(action: {
+                        SoundManager.playSound(1104)
+                        SoundManager.playVibration()
+                        showNotes = true
+                    }) {
+                        Image(systemName: "note.text")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(11)
+                            .background(
+                                LinearGradient(colors: [.pink, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            )
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 3)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 6)
+                    .padding(.bottom, 6)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -1472,9 +1542,24 @@ struct CounterView: View {
             DailyQuizView()
                 .preferredColorScheme(appTheme.colorScheme)
         }
+        .fullScreenCover(isPresented: $showCalendar) {
+            CalendarProgressView()
+                .preferredColorScheme(appTheme.colorScheme)
+        }
+        .fullScreenCover(isPresented: $showNotes) {
+            NavigationStack {
+                AudioRecordingView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showNotes = false }
+                        }
+                    }
+            }
+        }
         .onChange(of: remaining) { oldValue, newValue in
             if newValue == 0 && boostValue > 0 {
                 if !showCongrats {
+                    congratsTargetDayKey = nil
                     queueCongrats(for: item.thai)
                     updateRecentVocabs(item)
                 }
@@ -1492,6 +1577,7 @@ struct CounterView: View {
             }
             selectedIncrement = defaultIncrement(for: item.thai)
             showCongrats = false // hide overlay when new item loads
+            congratsTargetDayKey = nil
             
             // Cancel any pending speak operations
             NSObject.cancelPreviousPerformRequests(withTarget: self)
@@ -1734,14 +1820,15 @@ if let url = URL(string: "https://chat.openai.com/?model=gpt-4o&q=\(encoded)") ?
         return nil
     }
 
-    private func applyBackfillIncrement(_ increment: Int) {
-        if increment == 0 { return }
+    private func applyBackfillIncrement(_ increment: Int) -> String? {
+        if increment == 0 { return nil }
 
         let target = max(1, dailyTargetHits)
         var history = loadStudyHistory()
+        var completedDayKey: String? = nil
 
         guard let startKey = resolveBackfillActiveDayKey(history: history) else {
-            return
+            return nil
         }
         backfillActiveDayKey = startKey
 
@@ -1749,7 +1836,7 @@ if let url = URL(string: "https://chat.openai.com/?model=gpt-4o&q=\(encoded)") ?
             let currentHits = history[startKey] ?? 0
             history[startKey] = max(0, currentHits + increment)
             saveStudyHistory(history)
-            return
+            return nil
         }
 
         let cal = Calendar.current
@@ -1774,7 +1861,13 @@ if let url = URL(string: "https://chat.openai.com/?model=gpt-4o&q=\(encoded)") ?
             }
 
             let add = min(need, remainingInc)
-            history[key] = currentHits + add
+            let nextHits = currentHits + add
+            if currentHits < target, nextHits >= target {
+                if completedDayKey == nil {
+                    completedDayKey = key
+                }
+            }
+            history[key] = nextHits
             remainingInc -= add
 
             if (history[key] ?? 0) >= target {
@@ -1792,6 +1885,7 @@ if let url = URL(string: "https://chat.openai.com/?model=gpt-4o&q=\(encoded)") ?
         }
 
         saveStudyHistory(history)
+        return completedDayKey
     }
 
     // Track today's count and roll over on new day
@@ -1804,11 +1898,19 @@ if let url = URL(string: "https://chat.openai.com/?model=gpt-4o&q=\(encoded)") ?
             todayDate = Formatters.iso.string(from: now)
             todayCount = max(0, increment)
             appendTodayWorkHistory(date: now, increment: todayCount)
-            applyBackfillIncrement(todayCount)
+            let completedDayKey = applyBackfillIncrement(todayCount)
+            if let key = completedDayKey, !showCongrats {
+                congratsTargetDayKey = key
+                queueCongrats(for: item.thai)
+            }
         } else {
             todayCount = max(0, todayCount + increment)
             appendTodayWorkHistory(date: now, increment: increment)
-            applyBackfillIncrement(increment)
+            let completedDayKey = applyBackfillIncrement(increment)
+            if let key = completedDayKey, !showCongrats {
+                congratsTargetDayKey = key
+                queueCongrats(for: item.thai)
+            }
         }
     }
 

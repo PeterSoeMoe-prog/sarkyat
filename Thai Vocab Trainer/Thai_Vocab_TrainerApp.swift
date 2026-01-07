@@ -10,6 +10,7 @@ struct Thai_Vocab_TrainerApp: App {
     init() {
         // Reset paused flag each launch so pause is temporary
         UserDefaults.standard.set(false, forKey: "sessionPaused")
+        NotificationEngine.shared.updateBadgeCount()
         // Request notification permission and schedule daily reminder
         let center = UNUserNotificationCenter.current()
         // Set delegate to handle notification taps

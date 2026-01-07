@@ -624,6 +624,9 @@ struct AudioRecordingView: View {
         }
         if let idx = recordings.firstIndex(where: { $0.id == item.id }) {
             let current = recordings[idx]
+            if !current.isDone {
+                SoundManager.playQuizSuccess()
+            }
             recordings[idx] = RecordingItem(
                 id: current.id,
                 filename: current.filename,
