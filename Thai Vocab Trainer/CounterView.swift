@@ -1033,22 +1033,32 @@ struct CounterView: View {
 
     // MARK: - Extracted UI Blocks
     @ViewBuilder
-    private func categoryHeader(geo: GeometryProxy, category: String) -> some View {
+    private func categoryHeader(geo: GeometryProxy, category: String?) -> some View {
+        let trimmed = category?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasCategory = !trimmed.isEmpty
         HStack(spacing: 8) {
-            Button(action: {
-                let cat = category
-                dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    router.openCategory(cat)
+            if hasCategory {
+                Button(action: {
+                    let cat = trimmed
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        router.openCategory(cat)
+                    }
+                }) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(categoryHeaderText(trimmed))
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundColor(appTheme.primaryTextColor)
+                    }
                 }
-            }) {
+                .buttonStyle(PlainButtonStyle())
+            } else {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(categoryHeaderText(category))
+                    Text("No Category")
                         .font(.system(size: 17, weight: .regular))
                         .foregroundColor(appTheme.primaryTextColor)
                 }
             }
-            .buttonStyle(PlainButtonStyle())
             Spacer()
             Button("Edit") {
                 let targetID = item.id
@@ -1064,7 +1074,7 @@ struct CounterView: View {
         .frame(maxWidth: .infinity, alignment: .top)
         .frame(maxHeight: .infinity, alignment: .top)
         .padding(.top, geo.safeAreaInsets.top + 10)
-        .zIndex(1)
+        .zIndex(2000)
     }
 
     @ViewBuilder
@@ -1412,9 +1422,7 @@ struct CounterView: View {
                 appTheme.backgroundColor.ignoresSafeArea()
                 
                 // Category header overlay (non-interfering with Thai tap area)
-                if let category = item.category, !category.isEmpty {
-                    categoryHeader(geo: geo, category: category)
-                }
+                categoryHeader(geo: geo, category: item.category)
 
                 // MARK: - 1. Thai Vocab & Burmese Text Block
                 thaiVocabBlock(geo: geo)

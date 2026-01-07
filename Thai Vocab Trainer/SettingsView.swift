@@ -448,12 +448,20 @@ struct AudioRecordingView: View {
     @State private var micPermissionError: String?
     @State private var isPreparingToRecord = false
     @State private var recordingDraft: RecordingDraft?
-    @State private var isShowingResetConfirm = false
     @State private var isAutoPlayingAll = false
     @State private var autoPlayQueueIDs: [UUID] = []
     @State private var autoPlayIndex: Int = 0
 
     private let minRecordingSeconds: TimeInterval = 0.5
+    private let bottomFadeHeight: CGFloat = 160
+
+    private var listFadeColor: Color {
+        #if canImport(UIKit)
+        return Color(UIColor.systemBackground)
+        #else
+        return Color(NSColor.windowBackgroundColor)
+        #endif
+    }
 
     private static let filenameFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -653,22 +661,6 @@ struct AudioRecordingView: View {
         }
     }
 
-    private func resetAll() {
-        playback.stop()
-        recorder?.stop()
-        recorder = nil
-        isRecording = false
-        isPreparingToRecord = false
-        recordingDraft = nil
-
-        for item in recordings {
-            let url = fileURL(for: item)
-            try? FileManager.default.removeItem(at: url)
-        }
-        recordings = []
-        audioRecordingsJSON = "[]"
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             if !activeRecordings.isEmpty {
@@ -738,6 +730,17 @@ struct AudioRecordingView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .mask(
+                    VStack(spacing: 0) {
+                        Rectangle().fill(Color.black)
+                        LinearGradient(
+                            colors: [Color.black, Color.black.opacity(0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: bottomFadeHeight)
+                    }
+                )
             } else {
                 Spacer(minLength: 0)
             }
@@ -857,6 +860,8 @@ struct AudioRecordingView: View {
                 }
             }
             .padding()
+            .frame(maxWidth: .infinity)
+            .background(listFadeColor)
         }
         .navigationTitle("")
         .toolbar {
@@ -883,19 +888,6 @@ struct AudioRecordingView: View {
                 }
                 .disabled(isRecording || isPreparingToRecord || orderedActiveRecordingsOldestFirst.isEmpty)
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Reset") {
-                    isShowingResetConfirm = true
-                }
-                .foregroundColor(.red)
-                .disabled(isRecording || isPreparingToRecord)
-            }
-        }
-        .alert("Reset Notes", isPresented: $isShowingResetConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Reset", role: .destructive) { resetAll() }
-        } message: {
-            Text("This will delete all recorded voice rows and their audio files.")
         }
         .onAppear {
             playback.onFinish = { DispatchQueue.main.async { self.playNextInQueue() } }
