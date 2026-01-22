@@ -162,7 +162,7 @@ struct CounterView: View {
     @ViewBuilder
     private func thaiTitleView(_ text: String, size: CGFloat) -> some View {
         let font = thaiTitleFont(size: size)
-        return Text(rainbowAttributedThai(text))
+        Text(rainbowAttributedThai(text))
             .font(font)
     }
 
@@ -170,8 +170,6 @@ struct CounterView: View {
     @State private var todayCountTextWidth: CGFloat = 0
     @State private var todayDeltaWidth: CGFloat = 0
     @State private var recentVocabs: [VocabularyEntry] = []
-    // Flag to toggle Settings sheet
-    @State private var showSettings: Bool = false
 
     @AppStorage("boostType") private var boostTypeRaw: String = BoostType.mins.rawValue
     @AppStorage("boostValue") private var boostValue: Int = 0
@@ -1042,7 +1040,7 @@ struct CounterView: View {
                     let cat = trimmed
                     dismiss()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        router.openCategory(cat)
+                        router.openTabCategory(cat)
                     }
                 }) {
                     VStack(alignment: .leading, spacing: 2) {

@@ -208,14 +208,18 @@ class NotificationEngine: ObservableObject {
     func updateBadgeCount() {
         let undelivered = pendingNotifications.filter { !$0.isDelivered }.count
 
-        #if canImport(UIKit)
-        DispatchQueue.main.async {
-            UIApplication.shared.applicationIconBadgeNumber = undelivered
-        }
-        #endif
-
         if #available(iOS 16.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(undelivered)
+        } else {
+            #if canImport(UIKit)
+            DispatchQueue.main.async {
+                if #available(iOS 17.0, *) {
+                    // Avoid using deprecated UIApplication badge API on iOS 17+
+                } else {
+                    UIApplication.shared.applicationIconBadgeNumber = undelivered
+                }
+            }
+            #endif
         }
     }
 }

@@ -5,6 +5,7 @@
 //  Replace the file’s contents with this.
 
 import SwiftUI
+import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -12,6 +13,7 @@ import AudioToolbox
 
 struct IntroView: View {
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var vocabStore: VocabStore
     @AppStorage("remainingSeconds") private var remainingSeconds: Int = 0
     @AppStorage("remainingTimestamp") private var remainingTimestamp: Double = 0
     @AppStorage("sessionPaused") private var sessionPaused: Bool = false
@@ -25,10 +27,12 @@ struct IntroView: View {
     let readyCount: Int
     // Theme & navigation
     @AppStorage("appTheme") private var appTheme: AppTheme = .light
-    @State private var showCategories = false
     @State private var showNotes = false
     @State private var showDailyListCalendar = false
-    @State private var shouldStartStudyFiltered = false
+    @State private var showAllVocabsSheet: Bool = false
+    @State private var showNotificationsFromTab: Bool = false
+    @State private var selectedTabCategory: String? = nil
+    @State private var tabCounterItem: VocabularyEntry? = nil
     @State private var resumeGlow = false
     @State private var hitsNumberWidth: CGFloat = 0
     @State private var hitsSuperscriptWidth: CGFloat = 0
@@ -506,10 +510,10 @@ struct IntroView: View {
                             playTapSound()
                             router.openContent()
                         }
-                    actionButton(icon: "square.grid.2x2.fill", title: "Categories")
+                    actionButton(icon: "square.split.2x1", title: "Tab")
                         .onTapGesture {
                             playTapSound()
-                            showCategories = true
+                            showAllVocabsSheet = true
                         }
                     Button(action: {
                         playTapSound()
@@ -541,9 +545,253 @@ struct IntroView: View {
          .safeAreaInset(edge: .bottom) {
              Color.clear.frame(height: 18)
          }
-         .navigationDestination(isPresented: $showCategories) {
-             VocabCategoryView()
-         }
+        .fullScreenCover(isPresented: $showAllVocabsSheet) {
+            NavigationStack {
+                let tabCategories: [String] = {
+                    let raw = vocabStore.items.compactMap { $0.category?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    let cleaned = raw.filter { !$0.isEmpty }
+                    return Array(Set(cleaned)).sorted()
+                }()
+
+                let tabCategoryCounts: [String: Int] = {
+                    var acc: [String: Int] = [:]
+                    for entry in vocabStore.items {
+                        guard let cat = entry.category?.trimmingCharacters(in: .whitespacesAndNewlines), !cat.isEmpty else { continue }
+                        acc[cat, default: 0] += 1
+                    }
+                    return acc
+                }()
+
+                let tabCategoryStats: [String: (ready: Int, total: Int)] = {
+                    var acc: [String: (ready: Int, total: Int)] = [:]
+                    for entry in vocabStore.items {
+                        guard let cat = entry.category?.trimmingCharacters(in: .whitespacesAndNewlines), !cat.isEmpty else { continue }
+                        var cur = acc[cat, default: (ready: 0, total: 0)]
+                        cur.total += 1
+                        if entry.status == .ready { cur.ready += 1 }
+                        acc[cat] = cur
+                    }
+                    return acc
+                }()
+
+                let tabItems: [VocabularyEntry] = {
+                    guard let selected = selectedTabCategory, !selected.isEmpty else { return [] }
+                    return vocabStore.items.filter { ($0.category ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == selected }
+                }()
+
+                VStack(spacing: 12) {
+                    Text("Category")
+                        .font(.system(size: 30, weight: .heavy, design: .rounded))
+                        .foregroundColor(.clear)
+                        .overlay(
+                            LinearGradient(colors: [.pink, .purple, .blue], startPoint: .leading, endPoint: .trailing)
+                                .mask(
+                                    Text("Category")
+                                        .font(.system(size: 30, weight: .heavy, design: .rounded))
+                                )
+                        )
+                        .shadow(color: Color.pink.opacity(0.20), radius: 10, x: 0, y: 0)
+                        .shadow(color: Color.blue.opacity(0.18), radius: 14, x: 0, y: 0)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 6)
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        let gridPadding: CGFloat = 16
+                        let gridSpacing: CGFloat = 14
+                        let availableWidth = UIScreen.main.bounds.width - (gridPadding * 2) - (gridSpacing * 2)
+                        let badgeSize = max(96, min(128, availableWidth / 3))
+                        let columns: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: gridSpacing, alignment: .top), count: 3)
+                        LazyVGrid(columns: columns, spacing: gridSpacing) {
+                            ForEach(tabCategories, id: \.self) { cat in
+                                Button {
+                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                        selectedTabCategory = (selectedTabCategory == cat) ? nil : cat
+                                    }
+                                } label: {
+                                    let stats = tabCategoryStats[cat, default: (ready: 0, total: tabCategoryCounts[cat, default: 0])]
+                                    let ready = stats.ready
+                                    let total = stats.total
+                                    let pct = total > 0 ? Int(round(Double(ready) / Double(total) * 100)) : 0
+                                    let isSelected = selectedTabCategory == cat
+                                    let palette: [[Color]] = [
+                                        [.blue, .cyan],
+                                        [.orange, .yellow],
+                                        [.pink, .purple],
+                                        [.green, .mint]
+                                    ]
+                                    let ringColors = palette[abs(cat.hashValue) % palette.count]
+
+                                    ZStack {
+                                        Circle()
+                                            .fill(.ultraThinMaterial)
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+                                            )
+
+                                        Circle()
+                                            .stroke(Color.primary.opacity(0.10), lineWidth: 6)
+
+                                        Circle()
+                                            .trim(from: 0, to: CGFloat(pct) / 100.0)
+                                            .stroke(
+                                                AngularGradient(gradient: Gradient(colors: ringColors + ringColors), center: .center),
+                                                style: StrokeStyle(lineWidth: (isSelected ? 7 : 6), lineCap: .round)
+                                            )
+                                            .rotationEffect(.degrees(-90))
+                                            .shadow(color: ringColors.first?.opacity(pct == 100 ? 0.35 : 0.20) ?? Color.white.opacity(0.2), radius: 10, x: 0, y: 0)
+                                            .shadow(color: ringColors.last?.opacity(pct == 100 ? 0.25 : 0.14) ?? Color.white.opacity(0.2), radius: 14, x: 0, y: 0)
+
+                                        VStack(spacing: 6) {
+                                            Image(systemName: "crown.fill")
+                                                .font(.system(size: 18, weight: .bold))
+                                                .foregroundColor(pct == 100 ? .yellow : .secondary)
+                                                .shadow(color: (pct == 100 ? Color.yellow.opacity(0.55) : Color.clear), radius: 10, x: 0, y: 0)
+
+                                            Text(cat)
+                                                .font(.system(size: 15, weight: .bold))
+                                                .foregroundColor(.primary)
+                                                .lineLimit(1)
+                                                .minimumScaleFactor(0.7)
+
+                                            Text("\(ready)/\(total)")
+                                                .font(.system(size: 13, weight: .semibold))
+                                                .foregroundColor(.primary.opacity(0.85))
+
+                                            Text("\(pct)% Done")
+                                                .font(.system(size: 11, weight: .regular))
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding(.top, 2)
+                                    }
+                                    .frame(width: badgeSize, height: badgeSize)
+                                    .scaleEffect(isSelected ? 1.05 : 1.0)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, gridPadding)
+                        .padding(.bottom, 10)
+                    }
+                    .frame(maxHeight: selectedTabCategory == nil ? .infinity : 260)
+
+                    if let selected = selectedTabCategory {
+                        VStack(spacing: 10) {
+                            HStack(spacing: 12) {
+                                Text(selected)
+                                    .font(.headline.weight(.semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                                Spacer()
+                                Button {
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                        selectedTabCategory = nil
+                                    }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.title3)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+                            )
+                            .padding(.horizontal, 16)
+
+                            List {
+                                ForEach(tabItems) { item in
+                                    Button {
+                                        tabCounterItem = item
+                                    } label: {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(item.thai)
+                                                if let burmese = item.burmese?.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                   !burmese.isEmpty {
+                                                    Text(burmese)
+                                                        .font(.caption2)
+                                                        .foregroundColor(.secondary)
+                                                }
+                                            }
+                                            Spacer()
+                                            Text("\(item.count)")
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .listRowBackground(Color.clear)
+                                }
+                            }
+                            .scrollContentBackground(.hidden)
+                            .listStyle(.plain)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 10)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .background(appTheme.backgroundColor.ignoresSafeArea())
+                .toolbar(.hidden, for: .navigationBar)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    HStack {
+                        Button(action: {
+                            showAllVocabsSheet = false
+                            selectedTabCategory = nil
+                        }) {
+                            Image(systemName: "house.fill")
+                                .font(.title3)
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+
+                        Button(action: {
+                            showAllVocabsSheet = false
+                            router.openAddWord()
+                        }) {
+                            Image(systemName: "plus")
+                                .font(.title2)
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+
+                        NotificationBellButton {
+                            showNotificationsFromTab = true
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .frame(height: 52)
+                    .background(.ultraThinMaterial)
+                }
+                .sheet(item: $tabCounterItem) { item in
+                    let itemsBinding = Binding<[VocabularyEntry]>(
+                        get: { vocabStore.items },
+                        set: { vocabStore.setItems($0) }
+                    )
+                    if let binding = vocabStore.binding(for: item.id) {
+                        CounterView(item: binding, allItems: itemsBinding, totalVocabCount: vocabStore.items.count)
+                    } else {
+                        Text("Error loading item")
+                    }
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showNotificationsFromTab) {
+            NotificationListView()
+        }
         .fullScreenCover(isPresented: $showNotes) {
             NavigationStack {
                 AudioRecordingView()
@@ -600,6 +848,12 @@ struct IntroView: View {
                 )
             }
             #endif
+        }
+        .onChange(of: router.tabCategoryToOpen) { _, newValue in
+            guard let cat = newValue?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !cat.isEmpty else { return }
+            showAllVocabsSheet = true
+            selectedTabCategory = cat
+            router.tabCategoryToOpen = nil
         }
          // Automatically resume ongoing session if countdown still active
         .onAppear {

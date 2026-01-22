@@ -34,6 +34,7 @@ final class AppRouter: ObservableObject {
     // ContentView-specific UI commands
     @Published var shouldActivateSearch: Bool = false
     @Published var categoryToOpen: String? = nil
+    @Published var tabCategoryToOpen: String? = nil
 
     func openContent(activateSearch: Bool = false) {
         destination = .content
@@ -44,12 +45,21 @@ final class AppRouter: ObservableObject {
         destination = .intro
         sheet = nil
         categoryToOpen = nil
+        tabCategoryToOpen = nil
         shouldActivateSearch = false
     }
 
     func openCategory(_ category: String) {
         destination = .content
         categoryToOpen = category
+    }
+
+    func openTabCategory(_ category: String) {
+        destination = .intro
+        sheet = nil
+        categoryToOpen = nil
+        shouldActivateSearch = false
+        tabCategoryToOpen = category
     }
 
     func openCounter(id: UUID) {
