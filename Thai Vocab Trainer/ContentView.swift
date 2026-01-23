@@ -299,7 +299,6 @@ struct ContentView: View {
     @State private var showNotes: Bool = false
     // Global TTS player for this screen
     @StateObject private var ttsPlayer = TTSQueuePlayer()
-    @State private var showCategories = false
     // Open a specific category page pushed from CounterView
     @State private var openCategoryFromCounter: Bool = false
     @State private var categoryToOpen: String = ""
@@ -404,9 +403,6 @@ struct ContentView: View {
                     autoOpenCounterIfNeeded()
                 }
                 .withNotificationBell()
-                .navigationDestination(isPresented: $showCategories) {
-                    VocabCategoryView()
-                }
                 .navigationDestination(isPresented: $openCategoryFromCounter) {
                     CategoryListView(items: itemsBinding, category: categoryToOpen)
                 }
@@ -634,10 +630,6 @@ struct ContentView: View {
                             centerAction: { resumeSession() },
                             plusAction: {
                                 showNotes = true
-                                playTapSound()
-                            },
-                            categoryAction: {
-                                showCategories = true
                                 playTapSound()
                             },
                             dailyQuizAction: {
@@ -1586,8 +1578,6 @@ struct BottomTabMock: View {
     var centerAction: () -> Void = {}
     /// Action for the floating '+' button (left of center)
     var plusAction: () -> Void = {}
-    /// Action for the 'category' button (between play and home)
-    var categoryAction: () -> Void = {}
     /// Action for the 'Daily Quiz' button (between play and home, top)
     var dailyQuizAction: () -> Void = {}
     /// Action for the floating 'home' button (right of center)
@@ -1660,35 +1650,6 @@ struct BottomTabMock: View {
                     )
             }
             .offset(x: -110, y: -30)
-            .buttonStyle(PlainButtonStyle())
-
-            // Floating 'category' button (between play and home)
-            Button(action: {
-                categoryAction()
-            }) {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.indigo, Color.purple],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 40, height: 40)
-                    .overlay(
-                        Circle().stroke(Color.white, lineWidth: 2)
-                    )
-                    // Glow effect
-                    .shadow(color: Color.purple.opacity(0.4), radius: 10, x: 0, y: 2)
-                    .shadow(color: Color.indigo.opacity(0.3), radius: 12, x: 0, y: 6)
-                    .overlay(
-                        Image(systemName: "square.grid.2x2")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .shadow(color: Color.white.opacity(0.5), radius: 1)
-                    )
-            }
-            .offset(x: 77, y: 10)
             .buttonStyle(PlainButtonStyle())
 
             // NEW: Floating 'Daily Quiz' button (between play and home, top)
