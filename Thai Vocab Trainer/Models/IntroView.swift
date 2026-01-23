@@ -48,6 +48,24 @@ struct IntroView: View {
     @State private var statPage: Int = 0
     @State private var quickStartPage: Int = 1
 
+    private enum TabStatusFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case queue = "Queue"
+        case drill = "Drill"
+        case ready = "Ready"
+        var id: String { rawValue }
+    }
+
+    private enum TabSortOption: String, CaseIterable, Identifiable {
+        case name = "Name"
+        case count = "Count"
+        var id: String { rawValue }
+    }
+
+    @State private var tabSearchQuery: String = ""
+    @State private var tabStatusFilter: TabStatusFilter = .all
+    @State private var tabSortOption: TabSortOption = .name
+
     @AppStorage("studyStartDateTimestamp") private var studyStartDateTimestamp: Double = 0
 
     private var startDate: Date {
@@ -579,23 +597,64 @@ struct IntroView: View {
                     return vocabStore.items.filter { ($0.category ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == selected }
                 }()
 
-                VStack(spacing: 12) {
-                    Text("Category")
-                        .font(.system(size: 30, weight: .heavy, design: .rounded))
-                        .foregroundColor(.clear)
-                        .overlay(
-                            LinearGradient(colors: [.pink, .purple, .blue], startPoint: .leading, endPoint: .trailing)
-                                .mask(
-                                    Text("Category")
-                                        .font(.system(size: 30, weight: .heavy, design: .rounded))
-                                )
-                        )
-                        .shadow(color: Color.pink.opacity(0.20), radius: 10, x: 0, y: 0)
-                        .shadow(color: Color.blue.opacity(0.18), radius: 14, x: 0, y: 0)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, 6)
+                let filteredTabItems: [VocabularyEntry] = {
+                    guard selectedTabCategory != nil else { return tabItems }
 
-                    ScrollView(.vertical, showsIndicators: false) {
+                    let q = tabSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    var items = tabItems
+
+                    if tabStatusFilter != .all {
+                        items = items.filter {
+                            switch tabStatusFilter {
+                            case .all:
+                                return true
+                            case .queue:
+                                return $0.status == .queue
+                            case .drill:
+                                return $0.status == .drill
+                            case .ready:
+                                return $0.status == .ready
+                            }
+                        }
+                    }
+
+                    if !q.isEmpty {
+                        items = items.filter { item in
+                            let thai = item.thai.lowercased()
+                            let burmese = item.burmese?.lowercased() ?? ""
+                            return thai.contains(q) || burmese.contains(q)
+                        }
+                    }
+
+                    items.sort {
+                        switch tabSortOption {
+                        case .name:
+                            return $0.thai.localizedCaseInsensitiveCompare($1.thai) == .orderedAscending
+                        case .count:
+                            if $0.count != $1.count { return $0.count > $1.count }
+                            return $0.thai.localizedCaseInsensitiveCompare($1.thai) == .orderedAscending
+                        }
+                    }
+                    return items
+                }()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 12) {
+                        Text("Category")
+                            .font(.system(size: 30, weight: .heavy, design: .rounded))
+                            .foregroundColor(.clear)
+                            .overlay(
+                                LinearGradient(colors: [.pink, .purple, .blue], startPoint: .leading, endPoint: .trailing)
+                                    .mask(
+                                        Text("Category")
+                                            .font(.system(size: 30, weight: .heavy, design: .rounded))
+                                    )
+                            )
+                            .shadow(color: Color.pink.opacity(0.20), radius: 10, x: 0, y: 0)
+                            .shadow(color: Color.blue.opacity(0.18), radius: 14, x: 0, y: 0)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 6)
+
                         let gridPadding: CGFloat = 16
                         let gridSpacing: CGFloat = 14
                         let availableWidth = UIScreen.main.bounds.width - (gridPadding * 2) - (gridSpacing * 2)
@@ -672,74 +731,80 @@ struct IntroView: View {
                         }
                         .padding(.horizontal, gridPadding)
                         .padding(.bottom, 10)
-                    }
-                    .frame(maxHeight: selectedTabCategory == nil ? .infinity : 260)
+                        .frame(maxHeight: selectedTabCategory == nil ? .infinity : 260)
 
-                    if let selected = selectedTabCategory {
-                        VStack(spacing: 10) {
-                            HStack(spacing: 12) {
-                                Text(selected)
-                                    .font(.headline.weight(.semibold))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-                                Spacer()
-                                Button {
-                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                                        selectedTabCategory = nil
-                                    }
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.title3)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
-                            )
-                            .padding(.horizontal, 16)
-
-                            List {
-                                ForEach(tabItems) { item in
+                        if let selected = selectedTabCategory {
+                            VStack(spacing: 10) {
+                                HStack(spacing: 12) {
+                                    Text(selected)
+                                        .font(.headline.weight(.semibold))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                    Spacer()
                                     Button {
-                                        tabCounterItem = item
-                                    } label: {
-                                        HStack {
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(item.thai)
-                                                if let burmese = item.burmese?.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                   !burmese.isEmpty {
-                                                    Text(burmese)
-                                                        .font(.caption2)
-                                                        .foregroundColor(.secondary)
-                                                }
-                                            }
-                                            Spacer()
-                                            Text("\(item.count)")
-                                                .foregroundColor(.secondary)
+                                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                            selectedTabCategory = nil
                                         }
-                                        .contentShape(Rectangle())
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.title3)
+                                            .foregroundStyle(.secondary)
                                     }
                                     .buttonStyle(.plain)
-                                    .listRowBackground(Color.clear)
                                 }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+                                )
+                                .padding(.horizontal, 16)
+
+                                LazyVStack(spacing: 0) {
+                                    ForEach(filteredTabItems) { item in
+                                        Button {
+                                            tabCounterItem = item
+                                        } label: {
+                                            HStack {
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(item.thai)
+                                                    if let burmese = item.burmese?.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                       !burmese.isEmpty {
+                                                        Text(burmese)
+                                                            .font(.caption2)
+                                                            .foregroundColor(.secondary)
+                                                    }
+                                                }
+                                                Spacer()
+                                                Text("\(item.count)")
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            .contentShape(Rectangle())
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 12)
+                                        }
+                                        .buttonStyle(.plain)
+
+                                        if item.id != filteredTabItems.last?.id {
+                                            Divider()
+                                                .opacity(0.35)
+                                                .padding(.leading, 14)
+                                        }
+                                    }
+                                }
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                        .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+                                )
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 10)
                             }
-                            .scrollContentBackground(.hidden)
-                            .listStyle(.plain)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
-                            )
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 10)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .background(appTheme.backgroundColor.ignoresSafeArea())
@@ -775,6 +840,126 @@ struct IntroView: View {
                     .padding(.horizontal, 18)
                     .frame(height: 52)
                     .background(.ultraThinMaterial)
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    let stats: (ready: Int, total: Int) = {
+                        if let selected = selectedTabCategory,
+                           let s = tabCategoryStats[selected] {
+                            return s
+                        }
+                        let total = vocabStore.items.count
+                        let ready = vocabStore.items.filter { $0.status == .ready }.count
+                        return (ready: ready, total: total)
+                    }()
+
+                    let ready = stats.ready
+                    let total = stats.total
+                    let pct = total > 0 ? Int(round(Double(ready) / Double(total) * 100)) : 0
+
+                    VStack(spacing: 8) {
+                        HStack(spacing: 10) {
+                            Menu {
+                                ForEach(TabSortOption.allCases) { opt in
+                                    Button {
+                                        tabSortOption = opt
+                                    } label: {
+                                        Text(opt.rawValue)
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.up.arrow.down")
+                                        .font(.caption)
+                                    Text(tabSortOption.rawValue)
+                                        .font(.subheadline.weight(.semibold))
+                                }
+                                .foregroundStyle(.primary)
+                            }
+
+                            Menu {
+                                ForEach(TabStatusFilter.allCases) { filter in
+                                    Button {
+                                        tabStatusFilter = filter
+                                    } label: {
+                                        Text(filter.rawValue)
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "line.3.horizontal.decrease.circle")
+                                        .font(.caption)
+                                    Text(tabStatusFilter.rawValue)
+                                        .font(.subheadline.weight(.semibold))
+                                }
+                                .foregroundStyle(.primary)
+                            }
+
+                            HStack(spacing: 6) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundStyle(.secondary)
+                                TextField("Search", text: $tabSearchQuery)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled(true)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        )
+                        .padding(.horizontal, 16)
+
+                        HStack(spacing: 0) {
+                            Spacer(minLength: 0)
+
+                            VStack(spacing: 6) {
+                                Text("\(ready)")
+                                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(.green)
+                                Text("COMPLETED")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+
+                            VStack(spacing: 6) {
+                                Text("\(total)")
+                                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(.blue)
+                                Text("TOTAL")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+
+                            VStack(spacing: 6) {
+                                Text("\(pct)%")
+                                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(.purple)
+                                Text("PROGRESS")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 14)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
+                    }
+                    .padding(.top, 8)
                 }
                 .sheet(item: $tabCounterItem) { item in
                     let itemsBinding = Binding<[VocabularyEntry]>(
