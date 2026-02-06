@@ -1,1 +1,1 @@
-export const DEFAULT_STARTING_DATE = '01/03/2024';
+export const DEFAULT_STARTING_DATE = new Date().toISOString().split('T')[0];

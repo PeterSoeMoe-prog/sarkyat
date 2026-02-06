@@ -42,7 +42,13 @@ export function useVocabulary() {
     }
     return 500;
   });
-  const [startingDate, setStartingDate] = useState<string>(DEFAULT_STARTING_DATE);
+  const [startingDate, setStartingDate] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const local = localStorage.getItem("startingDate");
+      return local || DEFAULT_STARTING_DATE;
+    }
+    return DEFAULT_STARTING_DATE;
+  });
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [lastSavedGoals, setLastSavedGoals] = useState<{ dailyTarget: number; startingDate: string } | null>(null);
   const [authInitializing, setAuthInitializing] = useState(true);
@@ -109,6 +115,10 @@ export function useVocabulary() {
         if (localGoal) {
           setUserDailyGoal(parseInt(localGoal, 10));
         }
+        const localDate = localStorage.getItem("startingDate");
+        if (localDate) {
+          setStartingDate(localDate);
+        }
 
         // Tier 2: Firestore Sync
         const goals = await fetchStudyGoals(uid);
@@ -117,7 +127,10 @@ export function useVocabulary() {
             setUserDailyGoal(goals.userDailyGoal);
             localStorage.setItem("userDailyGoal", goals.userDailyGoal.toString());
           }
-          if (goals.startingDate) setStartingDate(goals.startingDate);
+          if (goals.startingDate) {
+            setStartingDate(goals.startingDate);
+            localStorage.setItem("startingDate", goals.startingDate);
+          }
         }
       } catch (err) {
         console.error("Error fetching study goals:", err);
@@ -142,7 +155,10 @@ export function useVocabulary() {
           setUserDailyGoal(data.userDailyGoal);
           localStorage.setItem("userDailyGoal", data.userDailyGoal.toString());
         }
-        if (data.startingDate) setStartingDate(data.startingDate);
+        if (data.startingDate) {
+          setStartingDate(data.startingDate);
+          localStorage.setItem("startingDate", data.startingDate);
+        }
       }
     }, (err) => {
       console.error("Firestore goals listener error:", err);
@@ -208,6 +224,7 @@ export function useVocabulary() {
     try {
       // 1. Local Storage Update (Instant)
       localStorage.setItem("userDailyGoal", newGoal.toString());
+      localStorage.setItem("startingDate", newDate);
       
       // 2. Global State Update
       setUserDailyGoal(newGoal);
