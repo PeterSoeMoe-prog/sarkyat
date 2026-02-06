@@ -11,6 +11,7 @@ export default function VocabPage() {
   const { items, loading } = useVocabulary();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("Recent");
+  const [primaryLanguage, setPrimaryLanguage] = useState<"Thai" | "Myanmar">("Thai");
 
   const filteredAndSortedItems = useMemo(() => {
     let result = [...items];
@@ -72,20 +73,39 @@ export default function VocabPage() {
                   </div>
                 </div>
 
-                <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                  {(["Recent", "Count (A-Z)", "Count (Z-A)"] as SortOption[]).map((opt) => (
-                    <button
-                      key={opt}
-                      onClick={() => setSortBy(opt)}
-                      className={`whitespace-nowrap px-4 py-2 rounded-full text-[12px] font-bold transition-all border ${
-                        sortBy === opt
-                          ? "bg-[#B36BFF] border-[#B36BFF] text-white shadow-[0_0_15px_rgba(179,107,255,0.3)]"
-                          : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
-                      }`}
-                    >
-                      {opt}
-                    </button>
-                  ))}
+                <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar items-center justify-between">
+                  <div className="flex gap-2">
+                    {(["Recent", "Count (A-Z)", "Count (Z-A)"] as SortOption[]).map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => setSortBy(opt)}
+                        className={`whitespace-nowrap px-4 py-2 rounded-full text-[12px] font-bold transition-all border ${
+                          sortBy === opt
+                            ? "bg-[#B36BFF] border-[#B36BFF] text-white shadow-[0_0_15px_rgba(179,107,255,0.3)]"
+                            : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
+                        }`}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Language Toggle */}
+                  <div className="flex bg-white/5 rounded-full p-1 border border-white/10 ml-4">
+                    {(["Thai", "Myanmar"] as const).map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={() => setPrimaryLanguage(lang)}
+                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                          primaryLanguage === lang
+                            ? "bg-white/20 text-white shadow-sm"
+                            : "text-white/30 hover:text-white/60"
+                        }`}
+                      >
+                        {lang}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </header>
@@ -105,10 +125,10 @@ export default function VocabPage() {
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="text-[17px] font-bold text-white tracking-tight mb-0.5 truncate">
-                          {it.thai}
+                          {primaryLanguage === "Thai" ? it.thai : (it.burmese || "—")}
                         </div>
                         <div className="text-[13px] font-medium text-white/40 truncate">
-                          {it.burmese || "—"}
+                          {primaryLanguage === "Thai" ? (it.burmese || "—") : it.thai}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">

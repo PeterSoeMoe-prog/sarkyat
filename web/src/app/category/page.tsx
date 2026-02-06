@@ -15,14 +15,14 @@ type CategoryStats = {
 };
 
 function CategoryCircle({ stats }: { stats: CategoryStats }) {
-  const radius = 70;
-  const stroke = 6;
+  const radius = 65;
+  const stroke = 5;
   const normalizedRadius = radius - stroke * 2;
   const circumference = normalizedRadius * 2 * Math.PI;
   const strokeDashoffset = circumference - (stats.percentage / 100) * circumference;
 
   return (
-    <div className="flex flex-col items-center justify-center p-2">
+    <div className="flex flex-col items-center justify-center p-1">
       <div className="relative" style={{ width: radius * 2, height: radius * 2 }}>
         <svg
           height={radius * 2}
@@ -132,7 +132,7 @@ export default function CategoryPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-x-1 gap-y-4 px-1">
+            <div className="grid grid-cols-3 gap-x-1 gap-y-2 px-1">
               {categoryData.map((cat) => (
                 <CategoryCircle key={cat.name} stats={cat} />
               ))}
