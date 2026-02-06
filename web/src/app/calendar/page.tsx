@@ -13,7 +13,7 @@ function CalendarMonth({
   startDay = DEFAULT_STARTING_DATE, 
   historyData, 
   dailyTarget, 
-  earliestSuccessDate, 
+  earliestMissDate, 
   earliestSuccessRef 
 }: { 
   year: number; 
@@ -21,7 +21,7 @@ function CalendarMonth({
   startDay?: string; 
   historyData: Record<string, number>; 
   dailyTarget: number;
-  earliestSuccessDate: string | null;
+  earliestMissDate: string | null;
   earliestSuccessRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const monthName = new Date(year, month).toLocaleString("default", { month: "long" });
@@ -47,16 +47,17 @@ function CalendarMonth({
     const isStarted = currentDay >= startingDate && currentDay <= today;
     const dailyCount = historyData[isoString] || 0;
     const isSuccess = dailyCount >= dailyTarget;
-    const isEarliestSuccess = isoString === earliestSuccessDate;
+    const isEarliestMiss = isoString === earliestMissDate;
     
     days.push(
       <div 
         key={d} 
-        ref={isEarliestSuccess ? earliestSuccessRef : null}
+        ref={isEarliestMiss ? earliestSuccessRef : null}
         className={`h-10 w-10 flex flex-col items-center justify-center rounded-xl text-[13px] font-bold transition-all relative
           ${isToday ? "bg-gradient-to-r from-[#FF4D6D] to-[#FFB020] text-white shadow-[0_8px_20px_rgba(255,77,109,0.3)] scale-110 z-10" : ""}
           ${!isToday && isSuccess ? "bg-[#2CE08B]/20 text-[#2CE08B] border border-[#2CE08B]/30 shadow-[0_0_15px_rgba(44,224,139,0.2)]" : ""}
           ${!isToday && !isSuccess && isStarted ? "bg-white/10 text-white/90 border border-white/5" : ""}
+          ${isEarliestMiss && !isToday ? "ring-2 ring-red-500/50" : ""}
           ${!isStarted ? "text-white/20" : ""}
         `}
       >
@@ -103,24 +104,33 @@ export default function CalendarPage() {
     return dailyCounts;
   }, [items]);
 
-  const earliestSuccessDate = useMemo(() => {
+  const earliestMissDate = useMemo(() => {
     if (!startingDate) return null;
     const start = new Date(startingDate);
     start.setHours(0, 0, 0, 0);
-    const sortedDates = Object.keys(historyData)
-      .filter(d => new Date(d) >= start && historyData[d] >= dailyTarget)
-      .sort((a, b) => a.localeCompare(b));
-    return sortedDates[0] || null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let current = new Date(start);
+    while (current <= today) {
+      const iso = current.toISOString().split('T')[0];
+      const count = historyData[iso] || 0;
+      if (count < dailyTarget) {
+        return iso;
+      }
+      current.setDate(current.getDate() + 1);
+    }
+    return null;
   }, [historyData, startingDate, dailyTarget]);
 
   useEffect(() => {
     setHasMounted(true);
-    if (earliestSuccessRef.current) {
+    if (earliestMissDate && earliestSuccessRef.current) {
       setTimeout(() => {
         earliestSuccessRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 500);
     }
-  }, [earliestSuccessDate]);
+  }, [earliestMissDate]);
 
   const totalDays = useMemo(() => {
     if (!startingDate) return 0;
@@ -189,7 +199,7 @@ export default function CalendarPage() {
                     startDay={startingDate} 
                     historyData={historyData}
                     dailyTarget={dailyTarget}
-                    earliestSuccessDate={earliestSuccessDate}
+                    earliestMissDate={earliestMissDate}
                     earliestSuccessRef={earliestSuccessRef}
                   />
                 </motion.div>
