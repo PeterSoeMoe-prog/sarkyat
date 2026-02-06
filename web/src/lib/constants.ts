@@ -1,0 +1,1 @@
+export const DEFAULT_STARTING_DATE = '01/03/2024';

@@ -1,0 +1,17 @@
+{
+  "name": "functions",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "lint": "echo 'no lint'",
+    "build": "echo 'no build'"
+  },
+  "dependencies": {
+    "@google-cloud/text-to-speech": "^5.4.0",
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^4.7.0"
+  }
+}

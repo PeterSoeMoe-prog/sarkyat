@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f2f2f7;
+  --foreground: #111111;
+  --card: rgba(255, 255, 255, 0.72);
+  --muted: rgba(17, 17, 17, 0.45);
+  --muted-strong: rgba(17, 17, 17, 0.8);
+  --border: rgba(17, 17, 17, 0.08);
+  --surface: rgba(255, 255, 255, 0.66);
+  --scrollbar-thumb: rgba(17, 17, 17, 0.22);
+  --scrollbar-thumb-hover: rgba(17, 17, 17, 0.32);
+}
+
+.dark {
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: rgba(28, 28, 30, 0.62);
+  --muted: rgba(255, 255, 255, 0.55);
+  --muted-strong: rgba(255, 255, 255, 0.85);
+  --border: rgba(255, 255, 255, 0.14);
+  --surface: rgba(28, 28, 30, 0.52);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.26);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Inter",
+    "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
