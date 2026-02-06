@@ -117,16 +117,20 @@ export default function CategoryPage() {
           }}
         >
           <div className="mx-auto w-full max-w-md px-2 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
-            <header className="mb-8 text-center flex items-center justify-center gap-3">
-              <h1 className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">
-                Sar Kyat Pro
-              </h1>
-              <div className="px-3 py-1 rounded-full bg-white/10 border border-white/10 backdrop-blur-md">
-                <span className="text-[14px] font-black text-white/60 tabular-nums">
-                  {categoryData.length}
-                </span>
+            <div className="text-center flex flex-col items-center justify-center mb-8">
+              <div className="relative inline-flex items-center justify-center">
+                <h1 className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">
+                  Category
+                </h1>
+                <div className="absolute left-full top-0 ml-2">
+                  <div className="px-3 py-1 rounded-full bg-white/10 border border-white/10 backdrop-blur-md">
+                    <span className="text-[14px] font-black text-white/60 tabular-nums">
+                      {categoryData.length}
+                    </span>
+                  </div>
+                </div>
               </div>
-            </header>
+            </div>
 
             <div className="grid grid-cols-3 gap-x-1 gap-y-4 px-1">
               {categoryData.map((cat) => (

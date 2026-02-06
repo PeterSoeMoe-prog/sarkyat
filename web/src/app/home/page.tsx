@@ -171,13 +171,17 @@ export default function HomePage() {
           }}
         >
           <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+18px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
-            <div className="text-center flex items-center justify-center gap-2">
-              <div className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">
-                Sar Kyat Pro
-              </div>
-              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#2CE08B]/10 border border-[#2CE08B]/20 mb-4">
-                <div className="h-1.5 w-1.5 rounded-full bg-[#2CE08B] animate-pulse shadow-[0_0_8px_#2CE08B]" />
-                <span className="text-[10px] font-black text-[#2CE08B] uppercase tracking-widest">LIVE</span>
+            <div className="text-center flex flex-col items-center justify-center">
+              <div className="relative inline-flex items-center justify-center">
+                <div className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">
+                  Sar Kyat Pro
+                </div>
+                <div className="absolute left-full top-0 ml-2">
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#2CE08B]/10 border border-[#2CE08B]/20">
+                    <div className="h-1.5 w-1.5 rounded-full bg-[#2CE08B] animate-pulse shadow-[0_0_8px_#2CE08B]" />
+                    <span className="text-[10px] font-black text-[#2CE08B] uppercase tracking-widest">LIVE</span>
+                  </div>
+                </div>
               </div>
             </div>
 

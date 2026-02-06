@@ -57,12 +57,8 @@ export default function VocabPage() {
         >
           <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
             <header className="mb-6">
-              <h1 className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent mb-6">
-                Sar Kyat Pro
-              </h1>
-
               {/* Search and Filter */}
-              <div className="space-y-3">
+              <div className="space-y-3 pt-4">
                 <div className="relative">
                   <input
                     type="text"
