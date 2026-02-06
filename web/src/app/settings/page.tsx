@@ -123,7 +123,7 @@ export default function SettingsPage() {
         <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
         <header className="flex items-center justify-between mb-8">
           <Link href="/" className={ghostBtn}>
-            Back
+            Home
           </Link>
           <div className="text-[17px] font-bold tracking-tight">
             Settings

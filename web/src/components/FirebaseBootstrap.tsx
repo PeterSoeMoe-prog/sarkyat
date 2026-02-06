@@ -17,7 +17,7 @@ const REDIRECT_PENDING_KEY = "sar-kyat-auth-redirect-pending";
 const REDIRECT_TS_KEY = "sar-kyat-auth-redirect-ts";
 const REDIRECT_ERROR_KEY = "sar-kyat-auth-redirect-error";
 
-export function FirebaseBootstrap() {
+export function FirebaseBootstrap({ children }: { children?: React.ReactNode }) {
   useEffect(() => {
     if (!isFirebaseConfigured) return;
     const auth = getFirebaseAuth();
@@ -102,5 +102,5 @@ export function FirebaseBootstrap() {
     return () => unsub();
   }, []);
 
-  return null;
+  return children ?? null;
 }

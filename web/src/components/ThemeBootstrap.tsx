@@ -15,7 +15,7 @@ function applyTheme(theme: Theme) {
   }
 }
 
-export function ThemeBootstrap() {
+export function ThemeBootstrap({ children }: { children?: React.ReactNode }) {
   useEffect(() => {
     try {
       localStorage.removeItem(STORAGE_KEY);
@@ -33,7 +33,7 @@ export function ThemeBootstrap() {
     return () => mql?.removeEventListener?.("change", onChange);
   }, []);
 
-  return null;
+  return children ?? null;
 }
 
 export function setTheme(theme: Theme) {

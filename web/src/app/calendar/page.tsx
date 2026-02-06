@@ -5,7 +5,9 @@ import { motion } from "framer-motion";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
-function CalendarMonth({ year, month, startDay }: { year: number; month: number; startDay: string }) {
+import { DEFAULT_STARTING_DATE } from "@/lib/constants";
+
+function CalendarMonth({ year, month, startDay = DEFAULT_STARTING_DATE }: { year: number; month: number; startDay?: string }) {
   const monthName = new Date(year, month).toLocaleString("default", { month: "long" });
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = Sunday, 1 = Monday, etc.
@@ -55,7 +57,8 @@ function CalendarMonth({ year, month, startDay }: { year: number; month: number;
 }
 
 export default function CalendarPage() {
-  const { startingDate, goalsLoading } = useVocabulary();
+  const { startingDate: cloudStartingDate, goalsLoading } = useVocabulary();
+  const startingDate = cloudStartingDate || DEFAULT_STARTING_DATE;
   const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
