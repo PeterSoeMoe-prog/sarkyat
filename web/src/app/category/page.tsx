@@ -67,9 +67,10 @@ function CategoryCircle({ stats }: { stats: CategoryStats }) {
 }
 
 export default function CategoryPage() {
-  const { items, loading } = useVocabulary();
+  const { items, loading, uid } = useVocabulary();
 
   const categoryData = useMemo(() => {
+    // PUBLIC ACCESS MODE for debugging: items will load if sync is working
     const cats: Record<string, { done: number; total: number }> = {};
     
     items.forEach(item => {
@@ -116,10 +117,15 @@ export default function CategoryPage() {
           }}
         >
           <div className="mx-auto w-full max-w-md px-2 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
-            <header className="mb-8 text-center">
+            <header className="mb-8 text-center flex items-center justify-center gap-3">
               <h1 className="text-[34px] font-bold tracking-tight bg-gradient-to-r from-[#FF4D6D] to-[#49D2FF] bg-clip-text text-transparent">
                 Category
               </h1>
+              <div className="px-3 py-1 rounded-full bg-white/10 border border-white/10 backdrop-blur-md">
+                <span className="text-[14px] font-black text-white/60 tabular-nums">
+                  {categoryData.length}
+                </span>
+              </div>
             </header>
 
             <div className="grid grid-cols-3 gap-x-1 gap-y-4 px-1">

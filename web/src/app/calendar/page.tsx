@@ -1,13 +1,29 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
 import { DEFAULT_STARTING_DATE } from "@/lib/constants";
 
-function CalendarMonth({ year, month, startDay = DEFAULT_STARTING_DATE }: { year: number; month: number; startDay?: string }) {
+function CalendarMonth({ 
+  year, 
+  month, 
+  startDay = DEFAULT_STARTING_DATE, 
+  historyData, 
+  dailyTarget, 
+  earliestSuccessDate, 
+  earliestSuccessRef 
+}: { 
+  year: number; 
+  month: number; 
+  startDay?: string; 
+  historyData: Record<string, number>; 
+  dailyTarget: number;
+  earliestSuccessDate: string | null;
+  earliestSuccessRef: React.RefObject<HTMLDivElement | null>;
+}) {
   const monthName = new Date(year, month).toLocaleString("default", { month: "long" });
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = Sunday, 1 = Monday, etc.
@@ -26,19 +42,28 @@ function CalendarMonth({ year, month, startDay = DEFAULT_STARTING_DATE }: { year
   for (let d = 1; d <= daysInMonth; d++) {
     const currentDay = new Date(year, month, d);
     currentDay.setHours(0, 0, 0, 0);
+    const isoString = currentDay.toISOString().split('T')[0];
     const isToday = currentDay.getTime() === today.getTime();
     const isStarted = currentDay >= startingDate && currentDay <= today;
+    const dailyCount = historyData[isoString] || 0;
+    const isSuccess = dailyCount >= dailyTarget;
+    const isEarliestSuccess = isoString === earliestSuccessDate;
     
     days.push(
       <div 
         key={d} 
-        className={`h-10 w-10 flex items-center justify-center rounded-xl text-[13px] font-bold transition-all
+        ref={isEarliestSuccess ? earliestSuccessRef : null}
+        className={`h-10 w-10 flex flex-col items-center justify-center rounded-xl text-[13px] font-bold transition-all relative
           ${isToday ? "bg-gradient-to-r from-[#FF4D6D] to-[#FFB020] text-white shadow-[0_8px_20px_rgba(255,77,109,0.3)] scale-110 z-10" : ""}
-          ${!isToday && isStarted ? "bg-white/10 text-white/90 border border-white/5" : ""}
+          ${!isToday && isSuccess ? "bg-[#2CE08B]/20 text-[#2CE08B] border border-[#2CE08B]/30 shadow-[0_0_15px_rgba(44,224,139,0.2)]" : ""}
+          ${!isToday && !isSuccess && isStarted ? "bg-white/10 text-white/90 border border-white/5" : ""}
           ${!isStarted ? "text-white/20" : ""}
         `}
       >
-        {d}
+        <span>{d}</span>
+        {isSuccess && (
+          <div className="absolute -bottom-1 h-1 w-1 rounded-full bg-[#2CE08B] shadow-[0_0_5px_#2CE08B]" />
+        )}
       </div>
     );
   }
@@ -59,13 +84,43 @@ function CalendarMonth({ year, month, startDay = DEFAULT_STARTING_DATE }: { year
 }
 
 export default function CalendarPage() {
-  const { startingDate: cloudStartingDate, goalsLoading } = useVocabulary();
+  const { startingDate: cloudStartingDate, goalsLoading, items, dailyTarget } = useVocabulary();
   const startingDate = cloudStartingDate || DEFAULT_STARTING_DATE;
   const [hasMounted, setHasMounted] = useState(false);
+  const earliestSuccessRef = useRef<HTMLDivElement | null>(null);
+
+  // Group items by date (normalized to midnight)
+  const historyData = useMemo(() => {
+    const dailyCounts: Record<string, number> = {};
+    items.forEach(it => {
+      if (it.updatedAt) {
+        const date = new Date(it.updatedAt);
+        date.setHours(0, 0, 0, 0);
+        const iso = date.toISOString().split('T')[0];
+        dailyCounts[iso] = (dailyCounts[iso] || 0) + (it.count || 0);
+      }
+    });
+    return dailyCounts;
+  }, [items]);
+
+  const earliestSuccessDate = useMemo(() => {
+    if (!startingDate) return null;
+    const start = new Date(startingDate);
+    start.setHours(0, 0, 0, 0);
+    const sortedDates = Object.keys(historyData)
+      .filter(d => new Date(d) >= start && historyData[d] >= dailyTarget)
+      .sort((a, b) => a.localeCompare(b));
+    return sortedDates[0] || null;
+  }, [historyData, startingDate, dailyTarget]);
 
   useEffect(() => {
     setHasMounted(true);
-  }, []);
+    if (earliestSuccessRef.current) {
+      setTimeout(() => {
+        earliestSuccessRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 500);
+    }
+  }, [earliestSuccessDate]);
 
   const totalDays = useMemo(() => {
     if (!startingDate) return 0;
@@ -125,10 +180,18 @@ export default function CalendarPage() {
                   key={`${m.year}-${m.month}`}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.1 }}
+                  transition={{ delay: Math.min(i * 0.05, 0.5) }} // Cap delay for performance
                   className="rounded-[32px] bg-white/5 border border-white/10 p-6 backdrop-blur-xl shadow-xl"
                 >
-                  <CalendarMonth year={m.year} month={m.month} startDay={startingDate} />
+                  <CalendarMonth 
+                    year={m.year} 
+                    month={m.month} 
+                    startDay={startingDate} 
+                    historyData={historyData}
+                    dailyTarget={dailyTarget}
+                    earliestSuccessDate={earliestSuccessDate}
+                    earliestSuccessRef={earliestSuccessRef}
+                  />
                 </motion.div>
               ))}
             </div>
