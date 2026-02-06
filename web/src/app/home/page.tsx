@@ -51,7 +51,7 @@ function ProgressRing({
           stroke="rgba(255,255,255,0.05)"
           strokeWidth={stroke}
         />
-        <circle
+        <motion.circle
           cx={size / 2}
           cy={size / 2}
           r={radius}
@@ -59,13 +59,28 @@ function ProgressRing({
           stroke="url(#progress-gradient)"
           strokeWidth={stroke}
           strokeLinecap="round"
-          strokeDasharray={`${dash} ${circumference - dash}`}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          initial={{ strokeDasharray: `0 ${circumference}`, rotate: -90 }}
+          animate={{ 
+            strokeDasharray: [`0 ${circumference}`, `${dash} ${circumference - dash}`],
+            rotate: [-90, 270] 
+          }}
+          transition={{ 
+            duration: 2.5, 
+            ease: "easeOut",
+            // 1 minute loop animation
+            repeat: Infinity,
+            repeatDelay: 60,
+            repeatType: "loop"
+          }}
+          style={{ originX: "50%", originY: "50%" }}
         />
         <defs>
           <linearGradient id="progress-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#2CE08B" />
-            <stop offset="100%" stopColor="#49D2FF" />
+            <stop offset="0%" stopColor="#49D2FF" />
+            <stop offset="25%" stopColor="#B36BFF" />
+            <stop offset="50%" stopColor="#FF4D6D" />
+            <stop offset="75%" stopColor="#FFB020" />
+            <stop offset="100%" stopColor="#2CE08B" />
           </linearGradient>
         </defs>
       </svg>
@@ -162,21 +177,23 @@ export default function HomePage() {
                 <div className="h-[6px] w-[6px] rounded-full bg-white/30" />
                 <div className="h-[6px] w-[6px] rounded-full bg-white/70" />
               </div>
-              <div className="text-center pt-1.5 relative">
-                <div className="flex items-center justify-center relative">
+              <div className="text-center pt-1.5">
+                <div className="relative inline-flex items-start justify-center">
                   <div
                     className="bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[60px] sm:text-[72px] font-semibold leading-none tracking-[-0.03em]"
                     style={{ filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.22))" }}
                   >
                     {loading || !isAuthed ? "—" : hitsFor.toLocaleString()}
                   </div>
-                  <div className="absolute top-[8px] right-[10%] sm:right-[15%] text-[16px] sm:text-[20px] font-semibold text-white/55">
+                  <div className="absolute left-full top-2 ml-1 whitespace-nowrap text-[14px] sm:text-[16px] font-bold text-white/40 uppercase tracking-widest">
                     Hits for
                   </div>
                 </div>
 
-                <div className="mt-2 inline-flex items-center rounded-full border border-white/15 bg-black/20 px-4 py-1.5 text-[16px] font-semibold text-white/90 shadow-[0_12px_40px_rgba(0,0,0,0.30)]">
-                  {dateText}
+                <div className="mt-4 flex justify-center">
+                  <div className="inline-flex items-center rounded-full border border-white/15 bg-black/20 px-4 py-1.5 text-[16px] font-semibold text-white/90 shadow-[0_12px_40px_rgba(0,0,0,0.30)]">
+                    {dateText}
+                  </div>
                 </div>
 
                 <div className="mt-2 text-[12px] font-semibold text-white/35">
@@ -256,8 +273,8 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="mt-8 relative rounded-3xl border border-white/10 bg-white/5 px-5 py-4 sm:py-6 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
-              <div className="text-center text-[14px] font-semibold text-white/40 pt-2">Total Vocab Counts</div>
+            <div className="mt-8 relative rounded-3xl border border-white/10 bg-white/5 px-5 py-2.5 sm:py-4 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
+              <div className="text-center text-[14px] font-semibold text-white/40 pt-1">Total Vocab Counts</div>
               <div
                 className="mt-2 text-center bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] via-[#FF4D6D] to-[#FFB020] bg-clip-text text-transparent text-[42px] sm:text-[64px] font-semibold leading-none tracking-[-0.03em] whitespace-nowrap overflow-hidden text-ellipsis"
                 style={{ filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.20))" }}

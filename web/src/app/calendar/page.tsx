@@ -13,6 +13,7 @@ function CalendarMonth({ year, month, startDay = DEFAULT_STARTING_DATE }: { year
   const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = Sunday, 1 = Monday, etc.
   
   const startingDate = new Date(startDay);
+  startingDate.setHours(0, 0, 0, 0); // Ensure consistency
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -24,6 +25,7 @@ function CalendarMonth({ year, month, startDay = DEFAULT_STARTING_DATE }: { year
 
   for (let d = 1; d <= daysInMonth; d++) {
     const currentDay = new Date(year, month, d);
+    currentDay.setHours(0, 0, 0, 0);
     const isToday = currentDay.getTime() === today.getTime();
     const isStarted = currentDay >= startingDate && currentDay <= today;
     
@@ -31,7 +33,7 @@ function CalendarMonth({ year, month, startDay = DEFAULT_STARTING_DATE }: { year
       <div 
         key={d} 
         className={`h-10 w-10 flex items-center justify-center rounded-xl text-[13px] font-bold transition-all
-          ${isToday ? "bg-gradient-to-r from-[#FF4D6D] to-[#FFB020] text-white shadow-lg scale-110 z-10" : ""}
+          ${isToday ? "bg-gradient-to-r from-[#FF4D6D] to-[#FFB020] text-white shadow-[0_8px_20px_rgba(255,77,109,0.3)] scale-110 z-10" : ""}
           ${!isToday && isStarted ? "bg-white/10 text-white/90 border border-white/5" : ""}
           ${!isStarted ? "text-white/20" : ""}
         `}
@@ -68,9 +70,11 @@ export default function CalendarPage() {
   const totalDays = useMemo(() => {
     if (!startingDate) return 0;
     const start = new Date(startingDate);
+    start.setHours(0, 0, 0, 0);
     const end = new Date();
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    end.setHours(0, 0, 0, 0);
+    const diffTime = end.getTime() - start.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include today
     return diffDays;
   }, [startingDate]);
 

@@ -8,6 +8,14 @@ import { signOut } from "firebase/auth";
 import { firebaseApp } from "@/lib/firebase/client";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
 import { getFirebaseAuth } from "@/lib/firebase/client";
+import { DEFAULT_STARTING_DATE } from "@/lib/constants";
+
+function formatDateDisplay(isoString: string) {
+  if (!isoString) return "";
+  const [y, m, d] = isoString.split("-");
+  if (!y || !m || !d) return isoString;
+  return `${d}/${m}/${y}`;
+}
 
 export default function SettingsPage() {
   const { 
@@ -17,25 +25,25 @@ export default function SettingsPage() {
     displayName, 
     photoURL, 
     loading, 
-    status, 
     aiApiKey, 
     aiKeyLoading, 
     updateAiApiKey,
     dailyTarget: cloudDailyTarget,
     startingDate: cloudStartingDate,
     goalsLoading,
-    updateStudyGoals
+    updateStudyGoals,
   } = useVocabulary();
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [googleAiApiKey, setGoogleAiApiKey] = useState("");
   const [googleAiApiKeyVisible, setGoogleAiApiKeyVisible] = useState(false);
-  const [dailyTarget, setDailyTarget] = useState(500);
-  const [startingDate, setStartingDate] = useState(() => {
-    const d = new Date();
-    return d.toISOString().split("T")[0];
-  });
+  
+  // MANUAL SAVE STATE ONLY
+  const [localDailyTarget, setLocalDailyTarget] = useState(500);
+  const [localStartingDate, setLocalStartingDate] = useState(DEFAULT_STARTING_DATE);
+  const [isManualSaving, setIsManualSaving] = useState(false);
+  const [showSavedIndicator, setShowSavedIndicator] = useState(false);
 
   useEffect(() => {
     if (aiApiKey) {
@@ -43,9 +51,14 @@ export default function SettingsPage() {
     }
   }, [aiApiKey]);
 
+  // INITIAL LOAD ONLY - No real-time fighting
+  const hasLoadedInitialGoals = useRef(false);
   useEffect(() => {
-    if (cloudDailyTarget !== undefined) setDailyTarget(cloudDailyTarget);
-    if (cloudStartingDate) setStartingDate(cloudStartingDate);
+    if ((cloudDailyTarget !== undefined || cloudStartingDate) && !hasLoadedInitialGoals.current) {
+      if (cloudDailyTarget !== undefined) setLocalDailyTarget(cloudDailyTarget);
+      if (cloudStartingDate) setLocalStartingDate(cloudStartingDate);
+      hasLoadedInitialGoals.current = true;
+    }
   }, [cloudDailyTarget, cloudStartingDate]);
 
   const handleSaveAiKey = async () => {
@@ -53,11 +66,21 @@ export default function SettingsPage() {
     await updateAiApiKey(googleAiApiKey.trim());
   };
 
-  const handleSaveGoals = async () => {
-    await updateStudyGoals({
-      dailyTarget,
-      startingDate
-    });
+  const handleManualSaveGoals = async () => {
+    if (!uid || isAnonymous) return;
+    setIsManualSaving(true);
+    try {
+      await updateStudyGoals({ 
+        dailyTarget: localDailyTarget, 
+        startingDate: localStartingDate 
+      });
+      setShowSavedIndicator(true);
+      setTimeout(() => setShowSavedIndicator(false), 2000);
+    } catch (e) {
+      console.error("Save failed:", e);
+    } finally {
+      setIsManualSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -212,15 +235,27 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between px-1 mb-3">
               <h2 className="text-[14px] font-bold uppercase tracking-wider text-[#2CE08B]">Study Goals</h2>
               <div className="flex items-center gap-2">
+                <AnimatePresence>
+                  {showSavedIndicator && (
+                    <motion.div
+                      initial={{ opacity: 0, x: 5 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="text-[10px] font-black text-[#2CE08B] uppercase tracking-widest"
+                    >
+                      ✓ Saved
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 <button
                   type="button"
-                  onClick={handleSaveGoals}
-                  disabled={goalsLoading || (dailyTarget === cloudDailyTarget && startingDate === cloudStartingDate)}
+                  onClick={handleManualSaveGoals}
+                  disabled={isManualSaving}
                   className="px-3 py-1.5 rounded-xl bg-[#2CE08B]/10 text-[10px] font-black text-[#2CE08B] uppercase tracking-wider hover:bg-[#2CE08B]/20 transition-all active:scale-95 border border-[#2CE08B]/20 disabled:opacity-40"
                 >
-                  {goalsLoading ? "Saving..." : "Save Goals"}
+                  {isManualSaving ? "Saving..." : "Save Goals"}
                 </button>
-                {goalsLoading && (
+                {isManualSaving && (
                   <motion.div
                     animate={{ rotate: 360 }}
                     transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
@@ -237,14 +272,14 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex items-center gap-3 bg-black/20 rounded-xl p-1 border border-white/5">
                   <button 
-                    onClick={() => setDailyTarget(prev => Math.max(100, prev - 100))}
+                    onClick={() => setLocalDailyTarget(prev => Math.max(100, prev - 100))}
                     className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-white/60 transition-colors"
                   >
                     −
                   </button>
-                  <span className="text-[14px] font-bold w-12 text-center tabular-nums">{dailyTarget}</span>
+                  <span className="text-[14px] font-bold w-12 text-center tabular-nums">{localDailyTarget}</span>
                   <button 
-                    onClick={() => setDailyTarget(prev => prev + 100)}
+                    onClick={() => setLocalDailyTarget(prev => prev + 100)}
                     className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-white/60 transition-colors"
                   >
                     +
@@ -257,12 +292,18 @@ export default function SettingsPage() {
                   <h4 className="text-[13px] font-bold text-white/90">Starting Date</h4>
                   <p className="text-[11px] font-medium text-[color:var(--muted)]">When your journey began</p>
                 </div>
-                <input
-                  type="date"
-                  value={startingDate}
-                  onChange={(e) => setStartingDate(e.target.value)}
-                  className="bg-black/20 rounded-xl px-3 py-2 text-[13px] font-bold text-white border border-white/5 focus:outline-none focus:border-[#2CE08B]/50 transition-all [color-scheme:dark]"
-                />
+                <div className="relative group">
+                  <input
+                    type="date"
+                    value={localStartingDate || ""}
+                    onChange={(e) => setLocalStartingDate(e.target.value)}
+                    className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full"
+                  />
+                  <div className="bg-black/20 rounded-xl px-4 py-2 text-[13px] font-bold text-white border border-white/5 group-hover:border-[#2CE08B]/50 transition-all flex items-center gap-2 min-w-[120px] justify-center">
+                    <span>{formatDateDisplay(localStartingDate)}</span>
+                    <span className="text-[14px] opacity-40">🗓️</span>
+                  </div>
+                </div>
               </div>
             </div>
           </section>

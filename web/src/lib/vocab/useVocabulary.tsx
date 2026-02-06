@@ -7,6 +7,8 @@ import { getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase/client";
 import { fetchAiApiKey, fetchStudyGoals, listenVocabulary, saveAiApiKey, saveStudyGoals, type UserStudyGoals } from "@/lib/vocab/firestore";
 import type { VocabularyEntry } from "@/lib/vocab/types";
 
+import { DEFAULT_STARTING_DATE } from "@/lib/constants";
+
 export type SyncStatus = "offline" | "syncing" | "live";
 
 export function useVocabulary() {
@@ -23,8 +25,9 @@ export function useVocabulary() {
   const [aiApiKey, setAiApiKey] = useState<string | null>(null);
   const [aiKeyLoading, setAiKeyLoading] = useState(false);
   const [dailyTarget, setDailyTarget] = useState(500);
-  const [startingDate, setStartingDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [startingDate, setStartingDate] = useState(DEFAULT_STARTING_DATE);
   const [goalsLoading, setGoalsLoading] = useState(false);
+  const [lastSavedGoals, setLastSavedGoals] = useState<{ dailyTarget: number; startingDate: string } | null>(null);
 
   useEffect(() => {
     if (!uid || isAnonymous) {
@@ -54,16 +57,21 @@ export function useVocabulary() {
     };
 
     const loadGoals = async () => {
-      if (!uid || isAnonymous) return;
       setGoalsLoading(true);
       try {
         const goals = await fetchStudyGoals(uid);
         if (goals) {
           setDailyTarget(goals.dailyTarget);
           setStartingDate(goals.startingDate);
+          setLastSavedGoals(goals);
+        } else {
+          // If no goals in cloud, set defaults and save them
+          const defaults = { dailyTarget: 500, startingDate: DEFAULT_STARTING_DATE };
+          await saveStudyGoals(uid, defaults);
+          setLastSavedGoals(defaults);
         }
       } catch (e) {
-        console.error("Failed to load study goals:", e);
+        console.error("Failed to load goals:", e);
       } finally {
         setGoalsLoading(false);
       }
@@ -85,13 +93,14 @@ export function useVocabulary() {
     }
   };
 
-  const updateStudyGoals = async (goals: UserStudyGoals) => {
+  const updateStudyGoalsLocal = async (goals: { dailyTarget: number; startingDate: string }) => {
     if (!uid) return;
     setGoalsLoading(true);
     try {
       await saveStudyGoals(uid, goals);
       setDailyTarget(goals.dailyTarget);
       setStartingDate(goals.startingDate);
+      setLastSavedGoals(goals);
     } finally {
       setGoalsLoading(false);
     }
@@ -207,7 +216,8 @@ export function useVocabulary() {
       dailyTarget,
       startingDate,
       goalsLoading,
-      updateStudyGoals,
+      updateStudyGoals: updateStudyGoalsLocal,
+      lastSavedGoals
     }),
     [
       uid,
