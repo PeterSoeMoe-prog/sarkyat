@@ -1,9 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs, 
+  onSnapshot,
+  orderBy, 
+  query, 
+  setDoc,
+  updateDoc,
+  where 
+} from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
-
-import { getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase/client";
+import { getFirebaseAuth, getFirebaseDb, isFirebaseConfigured } from "@/lib/firebase/client";
 import { fetchAiApiKey, fetchStudyGoals, listenVocabulary, saveAiApiKey, saveStudyGoals, type UserStudyGoals } from "@/lib/vocab/firestore";
 import type { VocabularyEntry } from "@/lib/vocab/types";
 
@@ -24,8 +35,14 @@ export function useVocabulary() {
   const [vocabError, setVocabError] = useState<string | null>(null);
   const [aiApiKey, setAiApiKey] = useState<string | null>(null);
   const [aiKeyLoading, setAiKeyLoading] = useState(false);
-  const [dailyTarget, setDailyTarget] = useState(500);
-  const [startingDate, setStartingDate] = useState(DEFAULT_STARTING_DATE);
+  const [userDailyGoal, setUserDailyGoal] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const local = localStorage.getItem("userDailyGoal");
+      return local ? parseInt(local, 10) : 500;
+    }
+    return 500;
+  });
+  const [startingDate, setStartingDate] = useState<string>(DEFAULT_STARTING_DATE);
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [lastSavedGoals, setLastSavedGoals] = useState<{ dailyTarget: number; startingDate: string } | null>(null);
   const [authInitializing, setAuthInitializing] = useState(true);
@@ -84,21 +101,26 @@ export function useVocabulary() {
     };
 
     const loadGoals = async () => {
+      if (!uid) return;
       setGoalsLoading(true);
       try {
+        // Tier 1: Local Storage (Instant)
+        const localGoal = localStorage.getItem("userDailyGoal");
+        if (localGoal) {
+          setUserDailyGoal(parseInt(localGoal, 10));
+        }
+
+        // Tier 2: Firestore Sync
         const goals = await fetchStudyGoals(uid);
         if (goals) {
-          setDailyTarget(goals.dailyTarget);
-          setStartingDate(goals.startingDate);
-          setLastSavedGoals(goals);
-        } else {
-          // If no goals in cloud, set defaults and save them
-          const defaults = { dailyTarget: 500, startingDate: DEFAULT_STARTING_DATE };
-          await saveStudyGoals(uid, defaults);
-          setLastSavedGoals(defaults);
+          if (goals.userDailyGoal) {
+            setUserDailyGoal(goals.userDailyGoal);
+            localStorage.setItem("userDailyGoal", goals.userDailyGoal.toString());
+          }
+          if (goals.startingDate) setStartingDate(goals.startingDate);
         }
-      } catch (e) {
-        console.error("Failed to load goals:", e);
+      } catch (err) {
+        console.error("Error fetching study goals:", err);
       } finally {
         setGoalsLoading(false);
       }
@@ -106,6 +128,66 @@ export function useVocabulary() {
 
     void loadKey();
     void loadGoals();
+  }, [uid, isAnonymous]);
+
+  useEffect(() => {
+    if (!uid || isAnonymous) return;
+
+    const db = getFirebaseDb();
+    const docRef = doc(db, "users", uid, "settings", "goals");
+    const unsubscribe = onSnapshot(docRef, (docSnap: any) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.userDailyGoal) {
+          setUserDailyGoal(data.userDailyGoal);
+          localStorage.setItem("userDailyGoal", data.userDailyGoal.toString());
+        }
+        if (data.startingDate) setStartingDate(data.startingDate);
+      }
+    }, (err) => {
+      console.error("Firestore goals listener error:", err);
+    });
+
+    return () => unsubscribe();
+  }, [uid, isAnonymous]);
+
+  useEffect(() => {
+    if (!uid || isAnonymous) {
+      setItems([]);
+      setLoading(false);
+      setFromCache(true);
+      setVocabError(null);
+      return;
+    }
+
+    setLoading(true);
+    setVocabError(null);
+
+    try {
+      const unsub = listenVocabulary(
+        uid,
+        (next) => {
+          setItems(next.items);
+          setFromCache(next.fromCache);
+          setLoading(false);
+        },
+        (err) => {
+          setVocabError(`${err.code ?? "firestore-error"}: ${err.message ?? ""}`.trim());
+          setItems([]);
+          setFromCache(true);
+          setLoading(false);
+        }
+      );
+
+      return () => unsub();
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      setVocabError(err?.message ? String(err.message) : "Failed to start Firestore listener.");
+      setItems([]);
+      setFromCache(true);
+      setLoading(false);
+      return;
+    }
   }, [uid, isAnonymous]);
 
   const updateAiApiKey = async (key: string) => {
@@ -120,14 +202,29 @@ export function useVocabulary() {
     }
   };
 
-  const updateStudyGoalsLocal = async (goals: { dailyTarget: number; startingDate: string }) => {
+  const updateStudyGoalsLocal = async (newGoal: number, newDate: string) => {
     if (!uid) return;
     setGoalsLoading(true);
     try {
-      await saveStudyGoals(uid, goals);
-      setDailyTarget(goals.dailyTarget);
-      setStartingDate(goals.startingDate);
-      setLastSavedGoals(goals);
+      // 1. Local Storage Update (Instant)
+      localStorage.setItem("userDailyGoal", newGoal.toString());
+      
+      // 2. Global State Update
+      setUserDailyGoal(newGoal);
+      setStartingDate(newDate);
+
+      // 3. Firestore Atomic Update
+      const db = getFirebaseDb();
+      const docRef = doc(db, "users", uid, "settings", "goals");
+      await setDoc(docRef, {
+        userDailyGoal: newGoal,
+        startingDate: newDate,
+        updatedAt: Date.now()
+      }, { merge: true });
+
+      console.log('Target Saved Successfully:', newGoal);
+    } catch (err) {
+      console.error("Error saving study goals:", err);
     } finally {
       setGoalsLoading(false);
     }
@@ -183,8 +280,9 @@ export function useVocabulary() {
     start.setHours(0, 0, 0, 0);
     
     const totalHits = totalVocabCounts;
-    const clearedDaysCount = Math.floor(totalHits / dailyTarget);
-    const currentDayProgress = totalHits % dailyTarget;
+    const target = userDailyGoal;
+    const clearedDaysCount = Math.floor(totalHits / target);
+    const currentDayProgress = totalHits % target;
     
     const currentTargetDate = new Date(start);
     currentTargetDate.setDate(start.getDate() + clearedDaysCount);
@@ -193,9 +291,9 @@ export function useVocabulary() {
       clearedDaysCount,
       currentDayProgress,
       currentTargetDate: currentTargetDate.toISOString().split('T')[0],
-      dailyTarget
+      dailyTarget: target
     };
-  }, [totalVocabCounts, startingDate, dailyTarget]);
+  }, [totalVocabCounts, startingDate, userDailyGoal]);
 
   return useMemo(
     () => ({
@@ -212,7 +310,7 @@ export function useVocabulary() {
       aiApiKey,
       aiKeyLoading,
       updateAiApiKey,
-      dailyTarget,
+      userDailyGoal,
       startingDate,
       goalsLoading,
       updateStudyGoals: updateStudyGoalsLocal,
@@ -233,7 +331,7 @@ export function useVocabulary() {
       vocabError,
       aiApiKey,
       aiKeyLoading,
-      dailyTarget,
+      userDailyGoal,
       startingDate,
       goalsLoading,
       authInitializing,

@@ -28,7 +28,7 @@ export default function SettingsPage() {
     aiApiKey, 
     aiKeyLoading, 
     updateAiApiKey,
-    dailyTarget: cloudDailyTarget,
+    userDailyGoal: cloudUserDailyGoal,
     startingDate: cloudStartingDate,
     goalsLoading,
     updateStudyGoals,
@@ -39,8 +39,7 @@ export default function SettingsPage() {
   const [googleAiApiKey, setGoogleAiApiKey] = useState("");
   const [googleAiApiKeyVisible, setGoogleAiApiKeyVisible] = useState(false);
   
-  // MANUAL SAVE STATE ONLY
-  const [localDailyTarget, setLocalDailyTarget] = useState(500);
+  const [localUserDailyGoal, setLocalUserDailyGoal] = useState<number | null>(null);
   const [localStartingDate, setLocalStartingDate] = useState(DEFAULT_STARTING_DATE);
   const [isManualSaving, setIsManualSaving] = useState(false);
   const [showSavedIndicator, setShowSavedIndicator] = useState(false);
@@ -51,15 +50,14 @@ export default function SettingsPage() {
     }
   }, [aiApiKey]);
 
-  // INITIAL LOAD ONLY - No real-time fighting
-  const hasLoadedInitialGoals = useRef(false);
   useEffect(() => {
-    if ((cloudDailyTarget !== undefined || cloudStartingDate) && !hasLoadedInitialGoals.current) {
-      if (cloudDailyTarget !== undefined) setLocalDailyTarget(cloudDailyTarget);
-      if (cloudStartingDate) setLocalStartingDate(cloudStartingDate);
-      hasLoadedInitialGoals.current = true;
+    if (cloudUserDailyGoal !== undefined && cloudUserDailyGoal !== null) {
+      setLocalUserDailyGoal(cloudUserDailyGoal);
     }
-  }, [cloudDailyTarget, cloudStartingDate]);
+    if (cloudStartingDate) {
+      setLocalStartingDate(cloudStartingDate);
+    }
+  }, [cloudUserDailyGoal, cloudStartingDate]);
 
   const handleSaveAiKey = async () => {
     if (!googleAiApiKey.trim()) return;
@@ -70,10 +68,10 @@ export default function SettingsPage() {
     if (!uid || isAnonymous) return;
     setIsManualSaving(true);
     try {
-      await updateStudyGoals({ 
-        dailyTarget: localDailyTarget, 
-        startingDate: localStartingDate 
-      });
+      await updateStudyGoals(
+        localUserDailyGoal || 500, 
+        localStartingDate
+      );
       setShowSavedIndicator(true);
       setTimeout(() => setShowSavedIndicator(false), 2000);
     } catch (e) {
@@ -267,19 +265,29 @@ export default function SettingsPage() {
             <div className="rounded-[24px] bg-[var(--card)] p-5 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-[color:var(--border)] backdrop-blur-3xl space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-[13px] font-bold text-white/90">Daily Target</h4>
-                  <p className="text-[11px] font-medium text-[color:var(--muted)]">Count Per Day</p>
+                  <h4 className="text-[13px] font-bold text-white/90">Daily Study Goal</h4>
+                  <p className="text-[11px] font-medium text-[color:var(--muted)]">Items per day</p>
                 </div>
                 <div className="flex items-center gap-3 bg-black/20 rounded-xl p-1 border border-white/5">
                   <button 
-                    onClick={() => setLocalDailyTarget(prev => Math.max(100, prev - 100))}
+                    onClick={() => setLocalUserDailyGoal(prev => Math.max(100, (prev || 500) - 100))}
                     className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-white/60 transition-colors"
                   >
                     −
                   </button>
-                  <span className="text-[14px] font-bold w-12 text-center tabular-nums">{localDailyTarget}</span>
+                  <input
+                    type="number"
+                    step="100"
+                    value={localUserDailyGoal || ""}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      setLocalUserDailyGoal(isNaN(val) ? null : val);
+                    }}
+                    placeholder="500"
+                    className="text-[14px] font-bold w-16 text-center tabular-nums bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+                  />
                   <button 
-                    onClick={() => setLocalDailyTarget(prev => prev + 100)}
+                    onClick={() => setLocalUserDailyGoal(prev => (prev || 500) + 100)}
                     className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-white/60 transition-colors"
                   >
                     +

@@ -93,11 +93,12 @@ export default function HomePage() {
   const { 
     items, 
     loading, 
-    dailyTarget, 
+    userDailyGoal, 
     authInitializing, 
     uid,
     aiKeyLoading,
-    backfillingState
+    backfillingState,
+    totalVocabCounts
   } = useVocabulary();
   const router = useRouter();
   const [hasMounted, setHasMounted] = useState(false);
@@ -153,9 +154,8 @@ export default function HomePage() {
   }
 
   const allTotal = items.length;
-  const readyPct = backfillingState ? Math.round((backfillingState.currentDayProgress / dailyTarget) * 100) : 0;
+  const readyPct = backfillingState ? Math.round((backfillingState.currentDayProgress / userDailyGoal) * 100) : 0;
   const hitsFor = backfillingState?.currentDayProgress ?? 0;
-  const totalVocabCounts = items.reduce((sum, it) => sum + (it.count || 0), 0);
 
   const legend = {
     queue: { count: statusCounts.queue, pct: allTotal > 0 ? Math.round((statusCounts.queue / allTotal) * 100) : 0 },

@@ -102,8 +102,8 @@ export async function fetchAiApiKey(uid: string): Promise<string | null> {
  * Study Goals Storage
  */
 export type UserStudyGoals = {
-  dailyTarget: number;
   startingDate: string;
+  userDailyGoal?: number;
 };
 
 export async function saveStudyGoals(uid: string, goals: UserStudyGoals): Promise<void> {
@@ -120,9 +120,9 @@ export async function fetchStudyGoals(uid: string): Promise<UserStudyGoals | nul
   const snap = await getDoc(userRef);
   if (snap.exists()) {
     const data = snap.data();
-    if (data.dailyTarget !== undefined && data.startingDate !== undefined) {
+    if (data.userDailyGoal !== undefined && data.startingDate !== undefined) {
       return {
-        dailyTarget: Number(data.dailyTarget),
+        userDailyGoal: Number(data.userDailyGoal),
         startingDate: String(data.startingDate),
       };
     }

@@ -12,7 +12,7 @@ function CalendarMonth({
   month, 
   startDay = DEFAULT_STARTING_DATE, 
   historyData, 
-  dailyTarget, 
+  userDailyGoal, 
   earliestMissDate, 
   earliestSuccessRef,
   onDateClick,
@@ -22,7 +22,7 @@ function CalendarMonth({
   month: number; 
   startDay?: string; 
   historyData: Record<string, number>; 
-  dailyTarget: number;
+  userDailyGoal: number;
   earliestMissDate: string | null;
   earliestSuccessRef: React.RefObject<HTMLButtonElement | null>;
   onDateClick: (date: string, count: number, isTarget: boolean) => void;
@@ -54,7 +54,7 @@ function CalendarMonth({
     const isCleared = dayIndex >= 0 && dayIndex < backfillingState?.clearedDaysCount;
     const isFuture = currentDay > today || dayIndex < 0;
     
-    const displayCount = isCleared ? dailyTarget : (isTargetDate ? backfillingState.currentDayProgress : 0);
+    const displayCount = isCleared ? userDailyGoal : (isTargetDate ? backfillingState.currentDayProgress : 0);
 
     days.push(
       <button 
@@ -94,7 +94,7 @@ function CalendarMonth({
 }
 
 export default function CalendarPage() {
-  const { startingDate: cloudStartingDate, goalsLoading, items, dailyTarget, backfillingState } = useVocabulary();
+  const { startingDate: cloudStartingDate, goalsLoading, items, userDailyGoal, backfillingState } = useVocabulary();
   const startingDate = cloudStartingDate || DEFAULT_STARTING_DATE;
   const [hasMounted, setHasMounted] = useState(false);
   const earliestSuccessRef = useRef<HTMLButtonElement | null>(null);
@@ -105,14 +105,11 @@ export default function CalendarPage() {
   // Group items by date (normalized to midnight)
   const historyData = useMemo(() => {
     const dailyCounts: Record<string, number> = {};
-    items.forEach(it => {
-      if (it.updatedAt) {
-        const date = new Date(it.updatedAt);
-        date.setHours(0, 0, 0, 0);
-        const iso = date.toISOString().split('T')[0];
-        dailyCounts[iso] = (dailyCounts[iso] || 0) + (it.count || 0);
-      }
-    });
+    for (const it of items) {
+      if (!it.updatedAt) continue;
+      const iso = new Date(it.updatedAt).toISOString().split('T')[0];
+      dailyCounts[iso] = (dailyCounts[iso] || 0) + (it.count || 0);
+    }
     return dailyCounts;
   }, [items]);
 
@@ -124,16 +121,17 @@ export default function CalendarPage() {
     today.setHours(0, 0, 0, 0);
 
     let current = new Date(start);
-    while (current <= today) {
+    const target = userDailyGoal;
+    for (let d = 0; d < 365; d++) {
       const iso = current.toISOString().split('T')[0];
       const count = historyData[iso] || 0;
-      if (count < dailyTarget) {
+      if (count < target) {
         return iso;
       }
       current.setDate(current.getDate() + 1);
     }
     return null;
-  }, [historyData, startingDate, dailyTarget]);
+  }, [historyData, startingDate, userDailyGoal]);
 
   useEffect(() => {
     setHasMounted(true);
@@ -212,7 +210,7 @@ export default function CalendarPage() {
                     month={m.month} 
                     startDay={startingDate} 
                     historyData={historyData}
-                    dailyTarget={dailyTarget}
+                    userDailyGoal={userDailyGoal}
                     earliestMissDate={earliestMissDate}
                     earliestSuccessRef={earliestSuccessRef}
                     onDateClick={(date, count, isTarget) => setSelectedDate({ date, count, isTarget })}
