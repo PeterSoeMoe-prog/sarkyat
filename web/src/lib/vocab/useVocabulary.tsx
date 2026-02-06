@@ -29,12 +29,32 @@ export function useVocabulary() {
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [lastSavedGoals, setLastSavedGoals] = useState<{ dailyTarget: number; startingDate: string } | null>(null);
   const [authInitializing, setAuthInitializing] = useState(true);
-  const [isCachedLoggedIn, setIsCachedLoggedIn] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("isLoggedIn") === "true";
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) {
+      setAuthInitializing(false);
+      setUid(null);
+      return;
     }
-    return false;
-  });
+    const auth = getFirebaseAuth();
+    return onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUid(user.uid);
+        setIsAnonymous(user.isAnonymous);
+        setEmail(user.email);
+        setDisplayName(user.displayName);
+        setPhotoURL(user.photoURL);
+      } else {
+        setUid(null);
+        setIsAnonymous(false);
+        setEmail(null);
+        setDisplayName(null);
+        setPhotoURL(null);
+        setItems([]);
+      }
+      setAuthInitializing(false);
+    });
+  }, []);
 
   useEffect(() => {
     if (!uid || isAnonymous) {
@@ -114,49 +134,6 @@ export function useVocabulary() {
   };
 
   useEffect(() => {
-    // RE-ENABLED FOR PERSISTENCE: Firebase listener
-    if (!isFirebaseConfigured) {
-      setUid(null);
-      return;
-    }
-    const auth = getFirebaseAuth();
-    return onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUid(user.uid);
-        setIsAnonymous(user.isAnonymous);
-        setEmail(user.email);
-        setDisplayName(user.displayName);
-        setPhotoURL(user.photoURL);
-        localStorage.setItem("isLoggedIn", "true");
-        setIsCachedLoggedIn(true);
-      } else {
-        setUid(null);
-        setIsAnonymous(false);
-        setEmail(null);
-        setDisplayName(null);
-        setPhotoURL(null);
-        localStorage.removeItem("isLoggedIn");
-        setIsCachedLoggedIn(false);
-        setItems([]);
-      }
-      setAuthInitializing(false);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onOnline = () => setOnline(true);
-    const onOffline = () => setOnline(false);
-    setOnline(navigator.onLine);
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onOffline);
-    return () => {
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("offline", onOffline);
-    };
-  }, []);
-
-  useEffect(() => {
     if (!uid || isAnonymous) {
       setItems([]);
       setLoading(false);
@@ -222,9 +199,7 @@ export function useVocabulary() {
       startingDate,
       goalsLoading,
       updateStudyGoals: updateStudyGoalsLocal,
-      lastSavedGoals,
-      authInitializing,
-      isCachedLoggedIn
+      authInitializing
     }),
     [
       uid,
@@ -242,6 +217,7 @@ export function useVocabulary() {
       dailyTarget,
       startingDate,
       goalsLoading,
+      authInitializing
     ]
   );
 }
