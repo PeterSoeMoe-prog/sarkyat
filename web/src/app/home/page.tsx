@@ -90,14 +90,59 @@ function ProgressRing({
 }
 
 export default function HomePage() {
-  const [hasMounted, setHasMounted] = useState(false);
+  const { 
+    items, 
+    loading, 
+    dailyTarget, 
+    authInitializing, 
+    uid,
+    isCachedLoggedIn,
+    aiKeyLoading
+  } = useVocabulary();
   const router = useRouter();
-  const { uid, isAnonymous, items, loading, aiApiKey, aiKeyLoading } = useVocabulary();
+  const [hasMounted, setHasMounted] = useState(false);
   const isAuthed = !!uid;
 
   useEffect(() => {
     setHasMounted(true);
   }, []);
+
+  // PREVENT FLICKER: Show premium splash during auth initialization
+  if (!hasMounted || authInitializing) {
+    return (
+      <div className="min-h-screen bg-[#0A0B0F] flex flex-col items-center justify-center">
+        <div
+          className="min-h-screen w-full flex flex-col items-center justify-center"
+          style={{
+            background:
+              "radial-gradient(1200px 800px at 50% 10%, rgba(255,255,255,0.05), rgba(0,0,0,0) 55%), radial-gradient(900px 600px at 50% 60%, rgba(179,107,255,0.07), rgba(0,0,0,0) 60%), #0A0B0F",
+          }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ 
+              duration: 0.8,
+              repeat: Infinity,
+              repeatType: "reverse",
+              ease: "easeInOut"
+            }}
+            className="flex flex-col items-center gap-6"
+          >
+            <div className="text-[42px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent filter drop-shadow-[0_0_20px_rgba(179,107,255,0.3)]">
+              Sar-Kyat
+            </div>
+            <div className="h-1 w-24 bg-gradient-to-r from-transparent via-[#B36BFF]/30 to-transparent rounded-full" />
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  // REDIRECT LOGIC: Only show login if auth is finished and we aren't cached/authed
+  if (!isAuthed && !isCachedLoggedIn) {
+    return <AuthScreen />;
+  }
 
   const now = useMemo(() => new Date(), []);
   const dateText = useMemo(() => formatLongDate(now), [now]);
@@ -168,8 +213,14 @@ export default function HomePage() {
           }}
         >
           <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+18px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
-            <div className="text-center">
-              <div className="text-[34px] font-semibold tracking-[-0.02em]">Thai Vocab Trainer</div>
+            <div className="text-center flex items-center justify-center gap-2">
+              <div className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">
+                Sar Kyat Pro
+              </div>
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#2CE08B]/10 border border-[#2CE08B]/20 mb-4">
+                <div className="h-1.5 w-1.5 rounded-full bg-[#2CE08B] animate-pulse shadow-[0_0_8px_#2CE08B]" />
+                <span className="text-[10px] font-black text-[#2CE08B] uppercase tracking-widest">LIVE</span>
+              </div>
             </div>
 
             <div className="mt-6 relative rounded-3xl border border-white/10 bg-white/5 px-5 py-4 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
@@ -179,12 +230,39 @@ export default function HomePage() {
               </div>
               <div className="text-center pt-1.5">
                 <div className="relative inline-flex items-start justify-center">
-                  <div
-                    className="bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[60px] sm:text-[72px] font-semibold leading-none tracking-[-0.03em]"
-                    style={{ filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.22))" }}
+                  <motion.div
+                    className="bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[60px] sm:text-[72px] font-bold leading-none tracking-[-0.03em] relative"
+                    style={{ 
+                      filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.25))",
+                      WebkitTextStroke: "1px rgba(255,255,255,0.15)"
+                    }}
+                    animate={{
+                      filter: [
+                        "drop-shadow(0 18px 45px rgba(255,80,150,0.25))",
+                        "drop-shadow(0 18px 60px rgba(255,80,150,0.45))",
+                        "drop-shadow(0 18px 45px rgba(255,80,150,0.25))"
+                      ],
+                    }}
+                    transition={{
+                      duration: 3,
+                      repeat: Infinity,
+                      ease: "easeInOut"
+                    }}
                   >
                     {loading || !isAuthed ? "—" : hitsFor.toLocaleString()}
-                  </div>
+                    <motion.div 
+                      className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-[-20deg] pointer-events-none"
+                      animate={{
+                        x: ["-100%", "200%"],
+                      }}
+                      transition={{
+                        duration: 4,
+                        repeat: Infinity,
+                        ease: "linear",
+                        delay: 1
+                      }}
+                    />
+                  </motion.div>
                   <div className="absolute left-full top-2 ml-1 whitespace-nowrap text-[14px] sm:text-[16px] font-bold text-white/40 uppercase tracking-widest">
                     Hits for
                   </div>

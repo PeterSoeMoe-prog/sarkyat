@@ -28,6 +28,13 @@ export function useVocabulary() {
   const [startingDate, setStartingDate] = useState(DEFAULT_STARTING_DATE);
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [lastSavedGoals, setLastSavedGoals] = useState<{ dailyTarget: number; startingDate: string } | null>(null);
+  const [authInitializing, setAuthInitializing] = useState(true);
+  const [isCachedLoggedIn, setIsCachedLoggedIn] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("isLoggedIn") === "true";
+    }
+    return false;
+  });
 
   useEffect(() => {
     if (!uid || isAnonymous) {
@@ -110,32 +117,30 @@ export function useVocabulary() {
     // RE-ENABLED FOR PERSISTENCE: Firebase listener
     if (!isFirebaseConfigured) {
       setUid(null);
-      setItems([]);
-      setLoading(false);
-      setFromCache(true);
       return;
     }
-
     const auth = getFirebaseAuth();
-    
-    // Check current user immediately
-    const user = auth.currentUser;
-    if (user) {
-      setUid(user.uid);
-      setIsAnonymous(user.isAnonymous);
-      setEmail(user.email);
-      setDisplayName(user.displayName);
-      setPhotoURL(user.photoURL);
-    }
-
-    const unsub = onAuthStateChanged(auth, (user) => {
-      setUid(user?.uid ?? null);
-      setIsAnonymous(user?.isAnonymous ?? false);
-      setEmail(user?.email ?? null);
-      setDisplayName(user?.displayName ?? null);
-      setPhotoURL(user?.photoURL ?? null);
+    return onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUid(user.uid);
+        setIsAnonymous(user.isAnonymous);
+        setEmail(user.email);
+        setDisplayName(user.displayName);
+        setPhotoURL(user.photoURL);
+        localStorage.setItem("isLoggedIn", "true");
+        setIsCachedLoggedIn(true);
+      } else {
+        setUid(null);
+        setIsAnonymous(false);
+        setEmail(null);
+        setDisplayName(null);
+        setPhotoURL(null);
+        localStorage.removeItem("isLoggedIn");
+        setIsCachedLoggedIn(false);
+        setItems([]);
+      }
+      setAuthInitializing(false);
     });
-    return () => unsub();
   }, []);
 
   useEffect(() => {
@@ -217,7 +222,9 @@ export function useVocabulary() {
       startingDate,
       goalsLoading,
       updateStudyGoals: updateStudyGoalsLocal,
-      lastSavedGoals
+      lastSavedGoals,
+      authInitializing,
+      isCachedLoggedIn
     }),
     [
       uid,
