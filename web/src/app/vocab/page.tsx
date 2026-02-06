@@ -94,6 +94,7 @@ export default function VocabPage() {
                           setSortByOrder(sortOrder === "asc" ? "desc" : "asc");
                         } else {
                           setSortBy("Count");
+                          setSortByOrder("desc"); // Default to desc on first tap
                         }
                       }}
                       className={`whitespace-nowrap px-4 py-2 rounded-full text-[12px] font-bold transition-all border flex items-center gap-1 ${
@@ -102,7 +103,7 @@ export default function VocabPage() {
                           : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
                       }`}
                     >
-                      Count {sortBy === "Count" ? (sortOrder === "asc" ? "↑" : "↓") : ""}
+                      Count ({sortBy === "Count" ? (sortOrder === "asc" ? "A-Z" : "Z-A") : "A-Z"})
                     </button>
                   </div>
 

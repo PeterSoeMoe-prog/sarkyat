@@ -190,9 +190,11 @@ export default function CalendarPage() {
           <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
             <header className="mb-8 text-center">
               <h1 className="text-[28px] font-bold tracking-tight">Study Journey</h1>
-              <div className="mt-2 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#2CE08B]/10 border border-[#2CE08B]/20">
-                <span className="text-[12px] font-black text-[#2CE08B] uppercase tracking-widest">Total Days:</span>
-                <span className="text-[16px] font-bold text-white tabular-nums">{totalDays}</span>
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
+                <span className="text-[11px] font-black text-white/30 uppercase tracking-widest">Progress</span>
+                <span className="text-[16px] font-bold text-white tabular-nums">
+                  {backfillingState?.clearedDaysCount || 0}/{totalDays}
+                </span>
               </div>
             </header>
 
