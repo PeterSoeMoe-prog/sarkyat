@@ -172,13 +172,30 @@ export function useVocabulary() {
     }
   }, [uid, isAnonymous]);
 
-  const status: SyncStatus = !online
-    ? "offline"
-    : loading || fromCache
-      ? "syncing"
-      : "live";
-
+  const status: SyncStatus = loading ? "syncing" : "live";
   const isLive = !!uid && !isAnonymous && status === "live";
+
+  const totalVocabCounts = useMemo(() => items.reduce((sum, it) => sum + (it.count || 0), 0), [items]);
+
+  const backfillingState = useMemo(() => {
+    if (!startingDate) return null;
+    const start = new Date(startingDate);
+    start.setHours(0, 0, 0, 0);
+    
+    const totalHits = totalVocabCounts;
+    const clearedDaysCount = Math.floor(totalHits / dailyTarget);
+    const currentDayProgress = totalHits % dailyTarget;
+    
+    const currentTargetDate = new Date(start);
+    currentTargetDate.setDate(start.getDate() + clearedDaysCount);
+    
+    return {
+      clearedDaysCount,
+      currentDayProgress,
+      currentTargetDate: currentTargetDate.toISOString().split('T')[0],
+      dailyTarget
+    };
+  }, [totalVocabCounts, startingDate, dailyTarget]);
 
   return useMemo(
     () => ({
@@ -199,7 +216,9 @@ export function useVocabulary() {
       startingDate,
       goalsLoading,
       updateStudyGoals: updateStudyGoalsLocal,
-      authInitializing
+      authInitializing,
+      totalVocabCounts,
+      backfillingState
     }),
     [
       uid,
@@ -217,7 +236,9 @@ export function useVocabulary() {
       dailyTarget,
       startingDate,
       goalsLoading,
-      authInitializing
+      authInitializing,
+      totalVocabCounts,
+      backfillingState
     ]
   );
 }

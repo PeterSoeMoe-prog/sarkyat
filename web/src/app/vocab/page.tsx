@@ -5,12 +5,13 @@ import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
-type SortOption = "Recent" | "Count (A-Z)" | "Count (Z-A)";
+type SortOption = "Recent" | "Count";
 
 export default function VocabPage() {
   const { items, loading } = useVocabulary();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("Recent");
+  const [sortOrder, setSortByOrder] = useState<"asc" | "desc">("desc");
   const [primaryLanguage, setPrimaryLanguage] = useState<"Thai" | "Myanmar">("Thai");
 
   const filteredAndSortedItems = useMemo(() => {
@@ -29,14 +30,16 @@ export default function VocabPage() {
     // Sorting
     if (sortBy === "Recent") {
       result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    } else if (sortBy === "Count (A-Z)") {
-      result.sort((a, b) => (a.count || 0) - (b.count || 0));
-    } else if (sortBy === "Count (Z-A)") {
-      result.sort((a, b) => (b.count || 0) - (a.count || 0));
+    } else if (sortBy === "Count") {
+      result.sort((a, b) => {
+        const countA = a.count || 0;
+        const countB = b.count || 0;
+        return sortOrder === "asc" ? countA - countB : countB - countA;
+      });
     }
 
     return result;
-  }, [items, searchQuery, sortBy]);
+  }, [items, searchQuery, sortBy, sortOrder]);
 
   if (loading) {
     return (
@@ -75,19 +78,32 @@ export default function VocabPage() {
 
                 <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar items-center justify-between">
                   <div className="flex gap-2">
-                    {(["Recent", "Count (A-Z)", "Count (Z-A)"] as SortOption[]).map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => setSortBy(opt)}
-                        className={`whitespace-nowrap px-4 py-2 rounded-full text-[12px] font-bold transition-all border ${
-                          sortBy === opt
-                            ? "bg-[#B36BFF] border-[#B36BFF] text-white shadow-[0_0_15px_rgba(179,107,255,0.3)]"
-                            : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
-                        }`}
-                      >
-                        {opt}
-                      </button>
-                    ))}
+                    <button
+                      onClick={() => setSortBy("Recent")}
+                      className={`whitespace-nowrap px-4 py-2 rounded-full text-[12px] font-bold transition-all border ${
+                        sortBy === "Recent"
+                          ? "bg-[#B36BFF] border-[#B36BFF] text-white shadow-[0_0_15px_rgba(179,107,255,0.3)]"
+                          : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
+                      }`}
+                    >
+                      Recent
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (sortBy === "Count") {
+                          setSortByOrder(sortOrder === "asc" ? "desc" : "asc");
+                        } else {
+                          setSortBy("Count");
+                        }
+                      }}
+                      className={`whitespace-nowrap px-4 py-2 rounded-full text-[12px] font-bold transition-all border flex items-center gap-1 ${
+                        sortBy === "Count"
+                          ? "bg-[#B36BFF] border-[#B36BFF] text-white shadow-[0_0_15px_rgba(179,107,255,0.3)]"
+                          : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
+                      }`}
+                    >
+                      Count {sortBy === "Count" ? (sortOrder === "asc" ? "↑" : "↓") : ""}
+                    </button>
                   </div>
 
                   {/* Language Toggle */}

@@ -96,14 +96,19 @@ export default function HomePage() {
     dailyTarget, 
     authInitializing, 
     uid,
-    aiKeyLoading
+    aiKeyLoading,
+    backfillingState
   } = useVocabulary();
   const router = useRouter();
   const [hasMounted, setHasMounted] = useState(false);
   const isAuthed = !!uid;
 
-  const now = useMemo(() => new Date(), []);
-  const dateText = useMemo(() => formatLongDate(now), [now]);
+  const currentTargetDate = useMemo(() => {
+    if (!backfillingState?.currentTargetDate) return new Date();
+    return new Date(backfillingState.currentTargetDate);
+  }, [backfillingState]);
+
+  const dateText = useMemo(() => formatLongDate(currentTargetDate), [currentTargetDate]);
 
   useEffect(() => {
     setHasMounted(true);
@@ -148,8 +153,8 @@ export default function HomePage() {
   }
 
   const allTotal = items.length;
-  const readyPct = allTotal > 0 ? Math.round((statusCounts.ready / allTotal) * 100) : 0;
-  const hitsFor = statusCounts.ready;
+  const readyPct = backfillingState ? Math.round((backfillingState.currentDayProgress / dailyTarget) * 100) : 0;
+  const hitsFor = backfillingState?.currentDayProgress ?? 0;
   const totalVocabCounts = items.reduce((sum, it) => sum + (it.count || 0), 0);
 
   const legend = {
