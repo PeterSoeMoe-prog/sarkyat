@@ -7,6 +7,7 @@ import { useVocabulary } from "@/lib/vocab/useVocabulary";
 import AuthScreen from "@/components/AuthScreen";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { isFirebaseConfigured } from "@/lib/firebase/client";
+import { DEFAULT_STARTING_DATE } from "@/lib/constants";
 
 function formatLongDate(d: Date) {
   const months = [
@@ -99,7 +100,8 @@ export default function HomePage() {
     aiKeyLoading,
     backfillingState,
     totalVocabCounts,
-    xDate
+    xDate,
+    rule
   } = useVocabulary();
   const router = useRouter();
   const [hasMounted, setHasMounted] = useState(false);
@@ -111,6 +113,32 @@ export default function HomePage() {
   }, [backfillingState]);
 
   const dateText = useMemo(() => formatLongDate(currentTargetDate), [currentTargetDate]);
+
+  const burmeseStatus = useMemo(() => {
+    if (!backfillingState || !rule) return null;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const startIso = xDate || DEFAULT_STARTING_DATE;
+    const start = new Date(startIso);
+    start.setHours(0, 0, 0, 0);
+    
+    // Difference from today to X Date in days
+    const diffTime = today.getTime() - start.getTime();
+    const currentDayIndex = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    
+    const clearedDays = backfillingState.clearedDaysCount;
+    const diffDays = Math.abs(clearedDays - currentDayIndex);
+    
+    const todayText = today.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    
+    if (clearedDays >= currentDayIndex) {
+      return `ယနေ့ (${todayText}) အထိ ${diffDays} ရက် ကျော်လွန်နေပါတယ်။`;
+    } else {
+      return `ယနေ့ (${todayText}) အထိ ${diffDays} ရက် လိုအပ်နေပါတယ်။`;
+    }
+  }, [backfillingState, rule, xDate]);
 
   const formattedXDate = useMemo(() => {
     if (!xDate) return "";
@@ -199,15 +227,15 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="mt-6 relative rounded-3xl border border-white/10 bg-white/5 px-5 py-4 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
-              <div className="absolute top-4 left-0 right-0 flex items-center justify-center gap-2 pointer-events-none">
+            <div className="mt-4 relative rounded-3xl border border-white/10 bg-white/5 px-5 py-3 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
+              <div className="absolute top-3 left-0 right-0 flex items-center justify-center gap-2 pointer-events-none">
                 <div className="h-[6px] w-[6px] rounded-full bg-white/30" />
                 <div className="h-[6px] w-[6px] rounded-full bg-white/70" />
               </div>
               <div className="text-center pt-1.5">
                 <div className="relative inline-flex items-start justify-center">
                   <motion.div
-                    className="text-[60px] sm:text-[72px] font-bold leading-none tracking-[-0.03em] relative inline-block"
+                    className="text-[52px] sm:text-[64px] font-bold leading-none tracking-[-0.03em] relative inline-block"
                     style={{ 
                       filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.25))",
                       WebkitTextStroke: "1px rgba(255,255,255,0.15)",
@@ -246,15 +274,22 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex justify-center items-center gap-1.5">
-                  <div className="inline-flex items-center rounded-full border border-white/15 bg-black/20 px-4 py-1.5 text-[16px] font-semibold text-white/90 shadow-[0_12px_40px_rgba(0,0,0,0.30)] relative">
-                    {dateText}
-                    {formattedXDate && (
-                      <span className="absolute -top-1 -right-1 text-[9px] font-bold text-white/30 leading-none transform translate-x-full -translate-y-1/4">
-                        {formattedXDate}
-                      </span>
-                    )}
+                <div className="mt-4 flex flex-col items-center">
+                  <div className="flex justify-center items-center gap-1.5">
+                    <div className="inline-flex items-center rounded-full border border-white/15 bg-black/20 px-4 py-1.5 text-[16px] font-semibold text-white/90 shadow-[0_12px_40px_rgba(0,0,0,0.30)] relative">
+                      {dateText}
+                      {formattedXDate && (
+                        <span className="absolute -top-1 -right-1 text-[9px] font-bold text-white/30 leading-none transform translate-x-full -translate-y-1/4">
+                          {formattedXDate}
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  {burmeseStatus && (
+                    <div className="mt-2 text-[10px] font-bold text-white/30 tracking-tight">
+                      {burmeseStatus}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-2 text-[12px] font-semibold text-white/35">
@@ -334,7 +369,7 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="mt-8 relative rounded-3xl border border-white/10 bg-white/5 px-5 py-2.5 sm:py-4 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
+            <div className="mt-8 relative rounded-3xl border border-white/10 bg-white/5 px-5 py-1.5 sm:py-2.5 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
               <div className="text-center text-[14px] font-semibold text-white/40 pt-1">Total Vocab Counts</div>
               <div
                 className="mt-2 text-center bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] via-[#FF4D6D] to-[#FFB020] bg-clip-text text-transparent text-[42px] sm:text-[64px] font-semibold leading-none tracking-[-0.03em] whitespace-nowrap overflow-hidden text-ellipsis"
