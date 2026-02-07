@@ -98,7 +98,8 @@ export default function HomePage() {
     uid,
     aiKeyLoading,
     backfillingState,
-    totalVocabCounts
+    totalVocabCounts,
+    xDate
   } = useVocabulary();
   const router = useRouter();
   const [hasMounted, setHasMounted] = useState(false);
@@ -110,6 +111,14 @@ export default function HomePage() {
   }, [backfillingState]);
 
   const dateText = useMemo(() => formatLongDate(currentTargetDate), [currentTargetDate]);
+
+  const formattedXDate = useMemo(() => {
+    if (!xDate) return "";
+    const parts = xDate.split("-");
+    if (parts.length !== 3) return "";
+    const [y, m, d] = parts;
+    return `${d}/${m}/${y}`;
+  }, [xDate]);
 
   useEffect(() => {
     setHasMounted(true);
@@ -237,9 +246,14 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex justify-center">
-                  <div className="inline-flex items-center rounded-full border border-white/15 bg-black/20 px-4 py-1.5 text-[16px] font-semibold text-white/90 shadow-[0_12px_40px_rgba(0,0,0,0.30)]">
+                <div className="mt-4 flex justify-center items-center gap-1.5">
+                  <div className="inline-flex items-center rounded-full border border-white/15 bg-black/20 px-4 py-1.5 text-[16px] font-semibold text-white/90 shadow-[0_12px_40px_rgba(0,0,0,0.30)] relative">
                     {dateText}
+                    {formattedXDate && (
+                      <span className="absolute -top-1 -right-1 text-[9px] font-bold text-white/30 leading-none transform translate-x-full -translate-y-1/4">
+                        {formattedXDate}
+                      </span>
+                    )}
                   </div>
                 </div>
 

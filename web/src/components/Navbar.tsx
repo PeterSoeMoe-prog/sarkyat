@@ -13,7 +13,7 @@ const items: NavItem[] = [
   { href: "/", label: "Home", icon: "⌂" },
   { href: "/category", label: "Category", icon: "▦" },
   { href: "/vocab", label: "Vocab", icon: "📚" },
-  { href: "/calendar", label: "Calendar", icon: "�" },
+  { href: "/calendar", label: "Calendar", icon: "📅" },
   { href: "/settings", label: "Settings", icon: "⚙︎" },
 ];
 

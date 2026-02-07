@@ -29,11 +29,8 @@ export default function SettingsPage() {
     aiApiKey, 
     aiKeyLoading, 
     updateAiApiKey,
-    userDailyGoal: cloudUserDailyGoal,
-    startingDate: cloudStartingDate,
     xDate,
     setXDate,
-    updateStudyGoals,
     rule,
     setRule,
   } = useVocabulary();
@@ -43,12 +40,8 @@ export default function SettingsPage() {
   const [googleAiApiKey, setGoogleAiApiKey] = useState("");
   const [googleAiApiKeyVisible, setGoogleAiApiKeyVisible] = useState(false);
   
-  const [localUserDailyGoal, setLocalUserDailyGoal] = useState<number | null>(null);
-  const [localStartingDate, setLocalStartingDate] = useState(DEFAULT_STARTING_DATE);
   const [localRule, setLocalRule] = useState<string>("");
   const [localXDate, setLocalXDate] = useState(DEFAULT_STARTING_DATE);
-  const [isManualSaving, setIsManualSaving] = useState(false);
-  const [showSavedIndicator, setShowSavedIndicator] = useState(false);
 
   useEffect(() => {
     if (rule !== undefined) {
@@ -63,15 +56,6 @@ export default function SettingsPage() {
   }, [aiApiKey]);
 
   useEffect(() => {
-    if (cloudUserDailyGoal !== undefined && cloudUserDailyGoal !== null) {
-      setLocalUserDailyGoal(cloudUserDailyGoal);
-    }
-    if (cloudStartingDate) {
-      setLocalStartingDate(cloudStartingDate);
-    }
-  }, [cloudUserDailyGoal, cloudStartingDate]);
-
-  useEffect(() => {
     if (xDate) {
       setLocalXDate(xDate);
     }
@@ -82,25 +66,6 @@ export default function SettingsPage() {
     await updateAiApiKey(googleAiApiKey.trim());
   };
 
-  const handleManualSaveGoals = async () => {
-    if (!uid || isAnonymous) return;
-    setIsManualSaving(true);
-    try {
-      const finalGoal = localUserDailyGoal || 500;
-      await updateStudyGoals(
-        finalGoal, 
-        localStartingDate
-      );
-      // Confirm the saved value is what we keep
-      setLocalUserDailyGoal(finalGoal);
-      setShowSavedIndicator(true);
-      setTimeout(() => setShowSavedIndicator(false), 2000);
-    } catch (e) {
-      console.error("Save failed:", e);
-    } finally {
-      setIsManualSaving(false);
-    }
-  };
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 1000);
@@ -248,97 +213,6 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Study Goals Section */}
-        {isAuthed && (
-          <section className="mb-8">
-            <div className="flex items-center justify-between px-1 mb-3">
-              <h2 className="text-[14px] font-bold uppercase tracking-wider text-[#2CE08B]">Study Goals</h2>
-              <div className="flex items-center gap-2">
-                <AnimatePresence>
-                  {showSavedIndicator && (
-                    <motion.div
-                      initial={{ opacity: 0, x: 5 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0 }}
-                      className="text-[10px] font-black text-[#2CE08B] uppercase tracking-widest"
-                    >
-                      ✓ Saved
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-                <button
-                  type="button"
-                  onClick={handleManualSaveGoals}
-                  disabled={isManualSaving}
-                  className="px-3 py-1.5 rounded-xl bg-[#2CE08B]/10 text-[10px] font-black text-[#2CE08B] uppercase tracking-wider hover:bg-[#2CE08B]/20 transition-all active:scale-95 border border-[#2CE08B]/20 disabled:opacity-40"
-                >
-                  {isManualSaving ? "Saving..." : "Save Goals"}
-                </button>
-                {isManualSaving && (
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    className="h-4 w-4 border-2 border-[#2CE08B] border-t-transparent rounded-full"
-                  />
-                )}
-              </div>
-            </div>
-            <div className="rounded-[24px] bg-[var(--card)] p-5 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-[color:var(--border)] backdrop-blur-3xl space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-[13px] font-bold text-white/90">Daily Study Goal</h4>
-                  <p className="text-[11px] font-medium text-[color:var(--muted)]">Items per day</p>
-                </div>
-                <div className="flex items-center gap-3 bg-black/20 rounded-xl p-1 border border-white/5">
-                  <button 
-                    onClick={() => setLocalUserDailyGoal(prev => Math.max(100, (prev || 500) - 100))}
-                    className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-white/60 transition-colors"
-                  >
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    step="100"
-                    value={localUserDailyGoal || ""}
-                    autoComplete="off"
-                    data-lpignore="true"
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      setLocalUserDailyGoal(isNaN(val) ? null : val);
-                    }}
-                    placeholder="500"
-                    className="text-[14px] font-bold w-16 text-center tabular-nums bg-transparent border-none focus:outline-none focus:ring-0 p-0"
-                  />
-                  <button 
-                    onClick={() => setLocalUserDailyGoal(prev => (prev || 500) + 100)}
-                    className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-white/60 transition-colors"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-[13px] font-bold text-white/90">Starting Date (dd/mm/yyyy)</h4>
-                  <p className="text-[11px] font-medium text-[color:var(--muted)]">When your journey began</p>
-                </div>
-                <div className="relative group">
-                  <div className="bg-black/20 rounded-xl px-3 py-2 border border-white/5 text-[14px] font-bold text-white flex items-center gap-2 cursor-pointer hover:bg-white/5 transition-colors">
-                    <span>{formatDateDisplay(localStartingDate)}</span>
-                    <span className="text-white/20">🗓️</span>
-                    <input
-                      type="date"
-                      value={localStartingDate}
-                      onChange={(e) => setLocalStartingDate(e.target.value)}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
 
         {/* Rule Section */}
         {uid && !isAnonymous && (

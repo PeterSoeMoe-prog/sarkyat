@@ -231,78 +231,6 @@ export function useVocabulary() {
     }
   };
 
-  const updateStudyGoalsLocal = async (newGoal: number, newDate: string) => {
-    if (!uid) return;
-    setGoalsLoading(true);
-    try {
-      // 1. Firestore Atomic Update (Wait for DB success first)
-      const db = getFirebaseDb();
-      const docRef = doc(db, "users", uid, "settings", "goals");
-      await setDoc(docRef, {
-        userDailyGoal: newGoal,
-        startingDate: newDate,
-        updatedAt: Date.now()
-      }, { merge: true });
-
-      // 2. Local Storage Update
-      localStorage.setItem("userDailyGoal", newGoal.toString());
-      localStorage.setItem("startingDate", newDate);
-      
-      // 3. Global State Update (Rest of app becomes aware)
-      setUserDailyGoal(newGoal);
-      setStartingDate(newDate);
-
-      console.log('Target Saved Successfully:', newGoal);
-    } catch (err) {
-      console.error("Error saving study goals:", err);
-    } finally {
-      setGoalsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!uid || isAnonymous) {
-      setItems([]);
-      setLoading(false);
-      setFromCache(true);
-      setVocabError(null);
-      return;
-    }
-
-    setLoading(true);
-    setVocabError(null);
-
-    try {
-      const unsub = listenVocabulary(
-        uid,
-        (next) => {
-          console.log("Vocab data source:", next.fromCache ? "Cache" : "Server");
-          setItems(next.items);
-          setFromCache(next.fromCache);
-          setLoading(false);
-        },
-        (err) => {
-          setVocabError(`${err.code ?? "firestore-error"}: ${err.message ?? ""}`.trim());
-          setItems([]);
-          setFromCache(true);
-          setLoading(false);
-        }
-      );
-
-      return () => {
-        console.log("Unsubscribing from vocab listener (Effect 3)");
-        unsub();
-      };
-    } catch (e: unknown) {
-      const err = e as { message?: string };
-      setVocabError(err?.message ? String(err.message) : "Failed to start Firestore listener.");
-      setItems([]);
-      setFromCache(true);
-      setLoading(false);
-      return;
-    }
-  }, [uid, isAnonymous]);
-
   const status: SyncStatus = loading ? "syncing" : "live";
   const isLive = !!uid && !isAnonymous && status === "live";
 
@@ -363,7 +291,6 @@ export function useVocabulary() {
       userDailyGoal,
       startingDate,
       goalsLoading,
-      updateStudyGoals: updateStudyGoalsLocal,
       authInitializing,
       totalVocabCounts,
       backfillingState,
