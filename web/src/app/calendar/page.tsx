@@ -7,6 +7,14 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 
 import { DEFAULT_STARTING_DATE } from "@/lib/constants";
 
+function formatDateDisplay(isoString: string) {
+  if (!isoString) return "";
+  const parts = isoString.split("-");
+  if (parts.length !== 3) return isoString;
+  const [y, m, d] = parts;
+  return `${d}/${m}/${y}`;
+}
+
 function CalendarMonth({ 
   year, 
   month, 
@@ -94,8 +102,8 @@ function CalendarMonth({
 }
 
 export default function CalendarPage() {
-  const { startingDate: cloudStartingDate, goalsLoading, items, userDailyGoal, backfillingState } = useVocabulary();
-  const startingDate = cloudStartingDate || DEFAULT_STARTING_DATE;
+  const { xDate: cloudXDate, goalsLoading, items, userDailyGoal, backfillingState } = useVocabulary();
+  const startingDate = cloudXDate || DEFAULT_STARTING_DATE;
   const [hasMounted, setHasMounted] = useState(false);
   const earliestSuccessRef = useRef<HTMLButtonElement | null>(null);
   
@@ -121,7 +129,7 @@ export default function CalendarPage() {
     today.setHours(0, 0, 0, 0);
 
     let current = new Date(start);
-    const target = userDailyGoal;
+    const target = userDailyGoal ?? 500;
     for (let d = 0; d < 365; d++) {
       const iso = current.toISOString().split('T')[0];
       const count = historyData[iso] || 0;
@@ -186,8 +194,11 @@ export default function CalendarPage() {
           }}
         >
           <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
-            <header className="mb-8 text-center">
-              <h1 className="text-[28px] font-bold tracking-tight">Study Journey</h1>
+            <header className="mb-8 text-center flex flex-col items-center">
+              <div className="flex items-center gap-2 mb-1">
+                <h1 className="text-[28px] font-bold tracking-tight">Study Journey</h1>
+                <span className="text-[10px] font-medium text-white/20 mt-2">({formatDateDisplay(startingDate)})</span>
+              </div>
               <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
                 <span className="text-[11px] font-black text-white/30 uppercase tracking-widest">Progress</span>
                 <span className="text-[16px] font-bold text-white tabular-nums">
@@ -210,7 +221,7 @@ export default function CalendarPage() {
                     month={m.month} 
                     startDay={startingDate} 
                     historyData={historyData}
-                    userDailyGoal={userDailyGoal}
+                    userDailyGoal={userDailyGoal ?? 500}
                     earliestMissDate={earliestMissDate}
                     earliestSuccessRef={earliestSuccessRef}
                     onDateClick={(date, count, isTarget) => setSelectedDate({ date, count, isTarget })}

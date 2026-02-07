@@ -104,27 +104,51 @@ export async function fetchAiApiKey(uid: string): Promise<string | null> {
 export type UserStudyGoals = {
   startingDate: string;
   userDailyGoal?: number;
+  rule?: number;
+  xDate?: string;
 };
 
 export async function saveStudyGoals(uid: string, goals: UserStudyGoals): Promise<void> {
   if (!uid) return;
   const db = getFirebaseDb();
-  const userRef = doc(db, "users", uid);
-  await setDoc(userRef, goals, { merge: true });
+  // Fixed path to sub-document for goals
+  const goalRef = doc(db, "users", uid, "settings", "goals");
+  await setDoc(goalRef, goals, { merge: true });
 }
 
 export async function fetchStudyGoals(uid: string): Promise<UserStudyGoals | null> {
   if (!uid) return null;
   const db = getFirebaseDb();
-  const userRef = doc(db, "users", uid);
-  const snap = await getDoc(userRef);
-  if (snap.exists()) {
-    const data = snap.data();
-    if (data.userDailyGoal !== undefined && data.startingDate !== undefined) {
-      return {
-        userDailyGoal: Number(data.userDailyGoal),
-        startingDate: String(data.startingDate),
-      };
+  const userRef = doc(db, "users", uid, "settings", "goals");
+  
+  try {
+    // FORCE SERVER SOURCE to prevent stale cache fallbacks
+    const snap = await getDocFromServer(userRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data.userDailyGoal !== undefined && data.startingDate !== undefined) {
+        return {
+          userDailyGoal: Number(data.userDailyGoal),
+          startingDate: String(data.startingDate),
+          rule: data.rule !== undefined ? Number(data.rule) : undefined,
+          xDate: data.xDate !== undefined ? String(data.xDate) : undefined,
+        };
+      }
+    }
+  } catch (error) {
+    console.error("Error fetching study goals from server:", error);
+    // Fallback to cache if server is unavailable
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data.userDailyGoal !== undefined && data.startingDate !== undefined) {
+        return {
+          userDailyGoal: Number(data.userDailyGoal),
+          startingDate: String(data.startingDate),
+          rule: data.rule !== undefined ? Number(data.rule) : undefined,
+          xDate: data.xDate !== undefined ? String(data.xDate) : undefined,
+        };
+      }
     }
   }
   return null;

@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { signOut } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
 
 import { firebaseApp } from "@/lib/firebase/client";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
-import { getFirebaseAuth } from "@/lib/firebase/client";
+import { getFirebaseAuth, getFirebaseDb, isFirebaseConfigured } from "@/lib/firebase/client";
 import { DEFAULT_STARTING_DATE } from "@/lib/constants";
 
 function formatDateDisplay(isoString: string) {
@@ -30,8 +31,11 @@ export default function SettingsPage() {
     updateAiApiKey,
     userDailyGoal: cloudUserDailyGoal,
     startingDate: cloudStartingDate,
-    goalsLoading,
+    xDate,
+    setXDate,
     updateStudyGoals,
+    rule,
+    setRule,
   } = useVocabulary();
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement | null>(null);
@@ -41,8 +45,16 @@ export default function SettingsPage() {
   
   const [localUserDailyGoal, setLocalUserDailyGoal] = useState<number | null>(null);
   const [localStartingDate, setLocalStartingDate] = useState(DEFAULT_STARTING_DATE);
+  const [localRule, setLocalRule] = useState<string>("");
+  const [localXDate, setLocalXDate] = useState(DEFAULT_STARTING_DATE);
   const [isManualSaving, setIsManualSaving] = useState(false);
   const [showSavedIndicator, setShowSavedIndicator] = useState(false);
+
+  useEffect(() => {
+    if (rule !== undefined) {
+      setLocalRule(rule.toLocaleString());
+    }
+  }, [rule]);
 
   useEffect(() => {
     if (aiApiKey) {
@@ -59,6 +71,12 @@ export default function SettingsPage() {
     }
   }, [cloudUserDailyGoal, cloudStartingDate]);
 
+  useEffect(() => {
+    if (xDate) {
+      setLocalXDate(xDate);
+    }
+  }, [xDate]);
+
   const handleSaveAiKey = async () => {
     if (!googleAiApiKey.trim()) return;
     await updateAiApiKey(googleAiApiKey.trim());
@@ -68,10 +86,13 @@ export default function SettingsPage() {
     if (!uid || isAnonymous) return;
     setIsManualSaving(true);
     try {
+      const finalGoal = localUserDailyGoal || 500;
       await updateStudyGoals(
-        localUserDailyGoal || 500, 
+        finalGoal, 
         localStartingDate
       );
+      // Confirm the saved value is what we keep
+      setLocalUserDailyGoal(finalGoal);
       setShowSavedIndicator(true);
       setTimeout(() => setShowSavedIndicator(false), 2000);
     } catch (e) {
@@ -279,6 +300,8 @@ export default function SettingsPage() {
                     type="number"
                     step="100"
                     value={localUserDailyGoal || ""}
+                    autoComplete="off"
+                    data-lpignore="true"
                     onChange={(e) => {
                       const val = parseInt(e.target.value, 10);
                       setLocalUserDailyGoal(isNaN(val) ? null : val);
@@ -297,19 +320,125 @@ export default function SettingsPage() {
 
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-[13px] font-bold text-white/90">Starting Date</h4>
+                  <h4 className="text-[13px] font-bold text-white/90">Starting Date (dd/mm/yyyy)</h4>
                   <p className="text-[11px] font-medium text-[color:var(--muted)]">When your journey began</p>
                 </div>
                 <div className="relative group">
-                  <input
-                    type="date"
-                    value={localStartingDate || ""}
-                    onChange={(e) => setLocalStartingDate(e.target.value)}
-                    className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full"
-                  />
-                  <div className="bg-black/20 rounded-xl px-4 py-2 text-[13px] font-bold text-white border border-white/5 group-hover:border-[#2CE08B]/50 transition-all flex items-center gap-2 min-w-[120px] justify-center">
+                  <div className="bg-black/20 rounded-xl px-3 py-2 border border-white/5 text-[14px] font-bold text-white flex items-center gap-2 cursor-pointer hover:bg-white/5 transition-colors">
                     <span>{formatDateDisplay(localStartingDate)}</span>
-                    <span className="text-[14px] opacity-40">🗓️</span>
+                    <span className="text-white/20">🗓️</span>
+                    <input
+                      type="date"
+                      value={localStartingDate}
+                      onChange={(e) => setLocalStartingDate(e.target.value)}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Rule Section */}
+        {uid && !isAnonymous && (
+          <section className="mb-8">
+            <h2 className="text-[14px] font-bold uppercase tracking-wider text-[#B36BFF] px-1 mb-3">Policy</h2>
+            <div className="rounded-[24px] bg-[var(--card)] p-5 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-[color:var(--border)] backdrop-blur-3xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-[13px] font-bold text-white/90">Rule</h4>
+                  <p className="text-[11px] font-medium text-[color:var(--muted)]">Active policy value</p>
+                </div>
+                <div className="flex items-center gap-3 bg-black/20 rounded-xl p-1 border border-white/5">
+                  <button 
+                    onClick={() => {
+                      const num = Math.max(0, (rule || 0) - 100);
+                      setLocalRule(num.toLocaleString());
+                      setRule(num);
+                      localStorage.setItem("policy_rule", num.toString());
+                      if (uid && !isAnonymous) {
+                        const db = getFirebaseDb();
+                        const goalRef = doc(db, "users", uid, "settings", "goals");
+                        setDoc(goalRef, { rule: num }, { merge: true });
+                      }
+                    }}
+                    className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-white/60 transition-colors"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="text"
+                    value={localRule}
+                    autoComplete="off"
+                    data-lpignore="true"
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/,/g, "");
+                      if (raw === "" || /^\d+$/.test(raw)) {
+                        const num = raw === "" ? 0 : parseInt(raw, 10);
+                        setLocalRule(num.toLocaleString());
+                        setRule(num);
+                        // Persist to localStorage immediately
+                        localStorage.setItem("policy_rule", num.toString());
+                        
+                        // Atomic sync to Firestore
+                        if (uid && !isAnonymous) {
+                          const db = getFirebaseDb();
+                          const goalRef = doc(db, "users", uid, "settings", "goals");
+                          setDoc(goalRef, { rule: num }, { merge: true });
+                        }
+                      }
+                    }}
+                    placeholder="000,000"
+                    className="text-[14px] font-bold text-[#B36BFF] text-right w-24 bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+                  />
+                  <button 
+                    onClick={() => {
+                      const num = (rule || 0) + 100;
+                      setLocalRule(num.toLocaleString());
+                      setRule(num);
+                      localStorage.setItem("policy_rule", num.toString());
+                      if (uid && !isAnonymous) {
+                        const db = getFirebaseDb();
+                        const goalRef = doc(db, "users", uid, "settings", "goals");
+                        setDoc(goalRef, { rule: num }, { merge: true });
+                      }
+                    }}
+                    className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-white/60 transition-colors"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-white/5 pt-4">
+                <div>
+                  <h4 className="text-[13px] font-bold text-white/90">X Date (DD/MM/YYYY)</h4>
+                  <p className="text-[11px] font-medium text-[color:var(--muted)]">Target deadline</p>
+                </div>
+                <div className="relative group">
+                  <div className="bg-black/20 rounded-xl px-3 py-2 border border-white/5 text-[14px] font-bold text-[#B36BFF] flex items-center gap-2 cursor-pointer hover:bg-white/5 transition-colors">
+                    <span>{formatDateDisplay(localXDate)}</span>
+                    <span className="text-[#B36BFF]/20">🗓️</span>
+                    <input
+                      type="date"
+                      value={localXDate}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setLocalXDate(val);
+                        setXDate(val);
+                        // Persist to localStorage immediately
+                        localStorage.setItem("policy_x_date", val);
+                        
+                        // Atomic sync to Firestore
+                        if (uid && !isAnonymous) {
+                          const db = getFirebaseDb();
+                          const goalRef = doc(db, "users", uid, "settings", "goals");
+                          setDoc(goalRef, { xDate: val }, { merge: true });
+                        }
+                      }}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
                   </div>
                 </div>
               </div>

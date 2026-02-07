@@ -60,10 +60,12 @@ export function getFirebaseDb(): Firestore {
     _db = getFirestore(firebaseApp);
   }
 
+  /* 
   if (!didEnablePersistence && typeof window !== "undefined") {
     didEnablePersistence = true;
     enableIndexedDbPersistence(_db).catch(() => {});
   }
+  */
 
   return _db;
 }

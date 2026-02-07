@@ -154,7 +154,7 @@ export default function HomePage() {
   }
 
   const allTotal = items.length;
-  const readyPct = backfillingState ? Math.round((backfillingState.currentDayProgress / userDailyGoal) * 100) : 0;
+  const readyPct = backfillingState && userDailyGoal ? Math.round((backfillingState.currentDayProgress / userDailyGoal) * 100) : 0;
   const hitsFor = backfillingState?.currentDayProgress ?? 0;
 
   const legend = {

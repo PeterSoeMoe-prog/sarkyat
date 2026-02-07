@@ -26,6 +26,20 @@ export function useVocabulary() {
   const [uid, setUid] = useState<string | null>(null);
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
+  const [rule, setRule] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const local = localStorage.getItem("policy_rule");
+      return local ? parseInt(local, 10) : 0;
+    }
+    return 0;
+  });
+  const [xDate, setXDate] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const local = localStorage.getItem("policy_x_date");
+      return local || DEFAULT_STARTING_DATE;
+    }
+    return DEFAULT_STARTING_DATE;
+  });
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [photoURL, setPhotoURL] = useState<string | null>(null);
   const [items, setItems] = useState<VocabularyEntry[]>([]);
@@ -35,12 +49,12 @@ export function useVocabulary() {
   const [vocabError, setVocabError] = useState<string | null>(null);
   const [aiApiKey, setAiApiKey] = useState<string | null>(null);
   const [aiKeyLoading, setAiKeyLoading] = useState(false);
-  const [userDailyGoal, setUserDailyGoal] = useState<number>(() => {
+  const [userDailyGoal, setUserDailyGoal] = useState<number | null>(() => {
     if (typeof window !== "undefined") {
       const local = localStorage.getItem("userDailyGoal");
-      return local ? parseInt(local, 10) : 500;
+      return local ? parseInt(local, 10) : null;
     }
-    return 500;
+    return null;
   });
   const [startingDate, setStartingDate] = useState<string>(() => {
     if (typeof window !== "undefined") {
@@ -107,7 +121,6 @@ export function useVocabulary() {
     };
 
     const loadGoals = async () => {
-      if (!uid) return;
       setGoalsLoading(true);
       try {
         // Tier 1: Local Storage (Instant)
@@ -120,7 +133,7 @@ export function useVocabulary() {
           setStartingDate(localDate);
         }
 
-        // Tier 2: Firestore Sync
+        // Tier 2: Firestore Sync - One-time fetch to avoid stale snapshot fights
         const goals = await fetchStudyGoals(uid);
         if (goals) {
           if (goals.userDailyGoal) {
@@ -131,6 +144,14 @@ export function useVocabulary() {
             setStartingDate(goals.startingDate);
             localStorage.setItem("startingDate", goals.startingDate);
           }
+          if (goals.rule !== undefined) {
+            setRule(goals.rule);
+            localStorage.setItem("policy_rule", goals.rule.toString());
+          }
+          if (goals.xDate) {
+            setXDate(goals.xDate);
+            localStorage.setItem("policy_x_date", goals.xDate);
+          }
         }
       } catch (err) {
         console.error("Error fetching study goals:", err);
@@ -139,32 +160,20 @@ export function useVocabulary() {
       }
     };
 
+    // Clean up generic keys once to remove remnants
+    const cleanupRemnants = () => {
+      const keysToClear = ["dailyTarget", "manual_daily_target"];
+      keysToClear.forEach(k => {
+        if (localStorage.getItem(k)) {
+          console.log(`Cleaning up stale localStorage key: ${k}`);
+          localStorage.removeItem(k);
+        }
+      });
+    };
+
+    cleanupRemnants();
     void loadKey();
     void loadGoals();
-  }, [uid, isAnonymous]);
-
-  useEffect(() => {
-    if (!uid || isAnonymous) return;
-
-    const db = getFirebaseDb();
-    const docRef = doc(db, "users", uid, "settings", "goals");
-    const unsubscribe = onSnapshot(docRef, (docSnap: any) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.userDailyGoal) {
-          setUserDailyGoal(data.userDailyGoal);
-          localStorage.setItem("userDailyGoal", data.userDailyGoal.toString());
-        }
-        if (data.startingDate) {
-          setStartingDate(data.startingDate);
-          localStorage.setItem("startingDate", data.startingDate);
-        }
-      }
-    }, (err) => {
-      console.error("Firestore goals listener error:", err);
-    });
-
-    return () => unsubscribe();
   }, [uid, isAnonymous]);
 
   useEffect(() => {
@@ -183,6 +192,7 @@ export function useVocabulary() {
       const unsub = listenVocabulary(
         uid,
         (next) => {
+          console.log("Vocab data source:", next.fromCache ? "Cache" : "Server");
           setItems(next.items);
           setFromCache(next.fromCache);
           setLoading(false);
@@ -195,7 +205,10 @@ export function useVocabulary() {
         }
       );
 
-      return () => unsub();
+      return () => {
+        console.log("Unsubscribing from vocab listener (Effect 3)");
+        unsub();
+      };
     } catch (e: unknown) {
       const err = e as { message?: string };
       setVocabError(err?.message ? String(err.message) : "Failed to start Firestore listener.");
@@ -222,15 +235,7 @@ export function useVocabulary() {
     if (!uid) return;
     setGoalsLoading(true);
     try {
-      // 1. Local Storage Update (Instant)
-      localStorage.setItem("userDailyGoal", newGoal.toString());
-      localStorage.setItem("startingDate", newDate);
-      
-      // 2. Global State Update
-      setUserDailyGoal(newGoal);
-      setStartingDate(newDate);
-
-      // 3. Firestore Atomic Update
+      // 1. Firestore Atomic Update (Wait for DB success first)
       const db = getFirebaseDb();
       const docRef = doc(db, "users", uid, "settings", "goals");
       await setDoc(docRef, {
@@ -238,6 +243,14 @@ export function useVocabulary() {
         startingDate: newDate,
         updatedAt: Date.now()
       }, { merge: true });
+
+      // 2. Local Storage Update
+      localStorage.setItem("userDailyGoal", newGoal.toString());
+      localStorage.setItem("startingDate", newDate);
+      
+      // 3. Global State Update (Rest of app becomes aware)
+      setUserDailyGoal(newGoal);
+      setStartingDate(newDate);
 
       console.log('Target Saved Successfully:', newGoal);
     } catch (err) {
@@ -263,6 +276,7 @@ export function useVocabulary() {
       const unsub = listenVocabulary(
         uid,
         (next) => {
+          console.log("Vocab data source:", next.fromCache ? "Cache" : "Server");
           setItems(next.items);
           setFromCache(next.fromCache);
           setLoading(false);
@@ -275,7 +289,10 @@ export function useVocabulary() {
         }
       );
 
-      return () => unsub();
+      return () => {
+        console.log("Unsubscribing from vocab listener (Effect 3)");
+        unsub();
+      };
     } catch (e: unknown) {
       const err = e as { message?: string };
       setVocabError(err?.message ? String(err.message) : "Failed to start Firestore listener.");
@@ -292,14 +309,30 @@ export function useVocabulary() {
   const totalVocabCounts = useMemo(() => items.reduce((sum, it) => sum + (it.count || 0), 0), [items]);
 
   const backfillingState = useMemo(() => {
-    if (!startingDate) return null;
-    const start = new Date(startingDate);
+    const startIso = startingDate || DEFAULT_STARTING_DATE;
+    const start = new Date(startIso);
+    
+    // Safety check for invalid date
+    if (isNaN(start.getTime())) {
+      console.warn("Invalid startingDate detected, falling back to today.");
+      const fallback = new Date();
+      fallback.setHours(0, 0, 0, 0);
+      return {
+        clearedDaysCount: 0,
+        currentDayProgress: 0,
+        currentTargetDate: fallback.toISOString().split('T')[0],
+        dailyTarget: userDailyGoal
+      };
+    }
+    
     start.setHours(0, 0, 0, 0);
     
     const totalHits = totalVocabCounts;
-    const target = userDailyGoal;
-    const clearedDaysCount = Math.floor(totalHits / target);
-    const currentDayProgress = totalHits % target;
+    const target = userDailyGoal !== null ? userDailyGoal : 500; // Final safety fallback for calculation only
+    
+    // Prevent Division by Zero or NaN
+    const clearedDaysCount = target > 0 ? Math.floor(totalHits / target) : 0;
+    const currentDayProgress = target > 0 ? totalHits % target : 0;
     
     const currentTargetDate = new Date(start);
     currentTargetDate.setDate(start.getDate() + clearedDaysCount);
@@ -333,7 +366,11 @@ export function useVocabulary() {
       updateStudyGoals: updateStudyGoalsLocal,
       authInitializing,
       totalVocabCounts,
-      backfillingState
+      backfillingState,
+      rule,
+      setRule,
+      xDate,
+      setXDate
     }),
     [
       uid,
@@ -353,7 +390,9 @@ export function useVocabulary() {
       goalsLoading,
       authInitializing,
       totalVocabCounts,
-      backfillingState
+      backfillingState,
+      rule,
+      xDate
     ]
   );
 }
