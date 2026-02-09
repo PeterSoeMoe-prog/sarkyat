@@ -11,11 +11,25 @@ import {
   query, 
   setDoc,
   updateDoc,
-  where 
+  where,
+  serverTimestamp
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { getFirebaseAuth, getFirebaseDb, isFirebaseConfigured } from "@/lib/firebase/client";
-import { fetchAiApiKey, fetchStudyGoals, listenVocabulary, saveAiApiKey, saveStudyGoals, type UserStudyGoals } from "@/lib/vocab/firestore";
+import { 
+  fetchAiApiKey, 
+  fetchStudyGoals, 
+  listenVocabulary, 
+  saveAiApiKey, 
+  saveStudyGoals, 
+  fetchVocabLogic, 
+  saveVocabLogic, 
+  fetchFailedQuizIds, 
+  saveFailedQuizIds, 
+  vocabCollectionPath,
+  type UserStudyGoals, 
+  type VocabLogic 
+} from "@/lib/vocab/firestore";
 import { saveVocabToIndexedDB, getVocabFromIndexedDB } from "@/lib/vocab/indexeddb";
 import type { VocabularyEntry } from "@/lib/vocab/types";
 
@@ -27,6 +41,8 @@ export function useVocabulary() {
   const [uid, setUid] = useState<string | null>(null);
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
+  const [failedIdsCount, setFailedIdsCount] = useState(0);
+  const [failedIds, setFailedIds] = useState<string[]>([]);
   const [rule, setRule] = useState<number>(() => {
     if (typeof window !== "undefined") {
       const local = localStorage.getItem("policy_rule");
@@ -40,6 +56,15 @@ export function useVocabulary() {
       return local || DEFAULT_STARTING_DATE;
     }
     return DEFAULT_STARTING_DATE;
+  });
+  const [vocabLogic, setVocabLogic] = useState<VocabLogic>(() => {
+    if (typeof window !== "undefined") {
+      const c = localStorage.getItem("vocab_logic_consonants") || "";
+      const v = localStorage.getItem("vocab_logic_vowels") || "";
+      const t = localStorage.getItem("vocab_logic_tones") || "";
+      return { consonants: c, vowels: v, tones: t };
+    }
+    return { consonants: "", vowels: "", tones: "" };
   });
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [photoURL, setPhotoURL] = useState<string | null>(null);
@@ -161,8 +186,24 @@ export function useVocabulary() {
           setStartingDate(localDate);
         }
 
-        // Tier 2: Firestore Sync - One-time fetch to avoid stale snapshot fights
-        const goals = await fetchStudyGoals(uid);
+        // Load Vocab Logic from local storage
+        const localC = localStorage.getItem("vocab_logic_consonants");
+        const localV = localStorage.getItem("vocab_logic_vowels");
+        const localT = localStorage.getItem("vocab_logic_tones");
+        if (localC || localV || localT) {
+          setVocabLogic({ 
+            consonants: localC || "", 
+            vowels: localV || "", 
+            tones: localT || "" 
+          });
+        }
+
+        // Tier 2: Firestore Sync
+        const [goals, logic] = await Promise.all([
+          fetchStudyGoals(uid),
+          fetchVocabLogic(uid)
+        ]);
+
         if (goals) {
           if (goals.userDailyGoal) {
             setUserDailyGoal(goals.userDailyGoal);
@@ -181,8 +222,15 @@ export function useVocabulary() {
             localStorage.setItem("policy_x_date", goals.xDate);
           }
         }
+
+        if (logic) {
+          setVocabLogic(logic);
+          localStorage.setItem("vocab_logic_consonants", logic.consonants || "");
+          localStorage.setItem("vocab_logic_vowels", logic.vowels || "");
+          localStorage.setItem("vocab_logic_tones", logic.tones || "");
+        }
       } catch (err) {
-        console.error("Error fetching study goals:", err);
+        console.error("Error fetching study goals/logic:", err);
       } finally {
         setGoalsLoading(false);
       }
@@ -263,6 +311,19 @@ export function useVocabulary() {
     }
   };
 
+  const updateVocabLogic = async (logic: VocabLogic) => {
+    if (!uid) return;
+    try {
+      setVocabLogic(logic);
+      localStorage.setItem("vocab_logic_consonants", logic.consonants || "");
+      localStorage.setItem("vocab_logic_vowels", logic.vowels || "");
+      localStorage.setItem("vocab_logic_tones", logic.tones || "");
+      await saveVocabLogic(uid, logic);
+    } catch (e) {
+      console.error("Failed to save vocab logic:", e);
+    }
+  };
+
   const status: SyncStatus = loading ? "syncing" : "live";
   const isLive = !!uid && !isAnonymous && status === "live";
 
@@ -305,6 +366,30 @@ export function useVocabulary() {
     };
   }, [totalVocabCounts, startingDate, userDailyGoal]);
 
+  useEffect(() => {
+    if (!uid) {
+      setFailedIdsCount(0);
+      setFailedIds([]);
+      return;
+    }
+
+    const db = getFirebaseDb();
+    const ref = doc(db, "users", uid, "settings", "failed_quiz");
+    
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        const ids = (snap.data() as { ids?: string[] }).ids ?? [];
+        setFailedIds(ids);
+        setFailedIdsCount(ids.length);
+      } else {
+        setFailedIds([]);
+        setFailedIdsCount(0);
+      }
+    });
+
+    return () => unsub();
+  }, [uid]);
+
   return useMemo(
     () => ({
       uid,
@@ -329,7 +414,11 @@ export function useVocabulary() {
       rule,
       setRule,
       xDate,
-      setXDate
+      setXDate,
+      vocabLogic,
+      updateVocabLogic,
+      failedIdsCount,
+      failedIds
     }),
     [
       uid,
@@ -351,7 +440,10 @@ export function useVocabulary() {
       totalVocabCounts,
       backfillingState,
       rule,
-      xDate
+      xDate,
+      vocabLogic,
+      failedIdsCount,
+      failedIds
     ]
   );
 }

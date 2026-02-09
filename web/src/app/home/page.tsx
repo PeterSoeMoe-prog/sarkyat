@@ -229,26 +229,16 @@ export default function HomePage() {
     backfillingState,
     totalVocabCounts,
     xDate,
-    rule
+    rule,
+    failedIdsCount
   } = useVocabulary();
   const router = useRouter();
   const [hasMounted, setHasMounted] = useState(false);
-  const [failedIdsCount, setFailedIdsCount] = useState(0);
 
-  useEffect(() => {
-    const stored = localStorage.getItem("failed_quiz_ids");
-    if (stored) {
-      try {
-        const ids = JSON.parse(stored);
-        setFailedIdsCount(Array.isArray(ids) ? ids.length : 0);
-      } catch (e) {
-        console.error("Failed to parse failed_quiz_ids", e);
-      }
-    }
-  }, []);
   const isAuthed = !!uid;
 
   const [activeCardIndex, setActiveCardIndex] = useState(0);
+  const [bottomCardIndex, setBottomCardIndex] = useState(0);
 
   const currentTargetDate = useMemo(() => {
     if (!backfillingState?.currentTargetDate) return new Date();
@@ -615,20 +605,79 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="mt-8 relative rounded-3xl border border-white/10 bg-white/5 px-5 py-1.5 sm:py-2.5 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
-              <div className="text-center text-[14px] font-semibold text-white/40 pt-1">Total Vocab Counts</div>
-              <div
-                className="mt-2 text-center bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] via-[#FF4D6D] to-[#FFB020] bg-clip-text text-transparent text-[42px] sm:text-[64px] font-semibold leading-none tracking-[-0.03em] whitespace-nowrap overflow-hidden text-ellipsis"
-                style={{ filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.20))" }}
-              >
-                {loading || !isAuthed ? "—" : totalVocabCounts.toLocaleString()}
+            <div className="mt-8 relative rounded-3xl border border-white/10 bg-white/5 p-1 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
+              {/* Pagination Dots */}
+              <div className="absolute top-3 left-0 right-0 flex items-center justify-center gap-2 z-20 pointer-events-none">
+                {[0, 1, 2, 3].map((idx) => (
+                  <div 
+                    key={idx}
+                    className={`h-[6px] rounded-full transition-all duration-300 ${bottomCardIndex === idx ? 'bg-white/70 w-3' : 'bg-white/30 w-[6px]'}`} 
+                  />
+                ))}
               </div>
 
-              <div className="mt-6 flex items-center justify-center gap-2">
-                <div className="h-[6px] w-[6px] rounded-full bg-white/70" />
-                <div className="h-[6px] w-[6px] rounded-full bg-white/30" />
-                <div className="h-[6px] w-[6px] rounded-full bg-white/30" />
-                <div className="h-[6px] w-[6px] rounded-full bg-white/30" />
+              <div className="relative overflow-hidden">
+                <div 
+                  className="flex transition-transform duration-500 ease-out"
+                  style={{ transform: `translateX(-${bottomCardIndex * 100}%)` }}
+                  onTouchStart={(e) => {
+                    const touch = e.touches[0];
+                    const startX = touch.clientX;
+                    const handleTouchEnd = (ee: TouchEvent) => {
+                      const endX = ee.changedTouches[0].clientX;
+                      if (startX - endX > 50 && bottomCardIndex < 3) setBottomCardIndex(prev => prev + 1);
+                      if (endX - startX > 50 && bottomCardIndex > 0) setBottomCardIndex(prev => prev - 1);
+                      document.removeEventListener("touchend", handleTouchEnd);
+                    };
+                    document.addEventListener("touchend", handleTouchEnd);
+                  }}
+                >
+                  {/* Bottom Card 1: Total Vocab Counts */}
+                  <div className="w-full shrink-0 px-5 py-6">
+                    <div className="text-center text-[14px] font-semibold text-white/40 mb-2">Total Vocab Counts</div>
+                    <div
+                      className="text-center bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] via-[#FF4D6D] to-[#FFB020] bg-clip-text text-transparent text-[42px] sm:text-[64px] font-semibold leading-none tracking-[-0.03em] whitespace-nowrap overflow-hidden text-ellipsis"
+                      style={{ filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.20))" }}
+                    >
+                      {loading || !isAuthed ? "—" : totalVocabCounts.toLocaleString()}
+                    </div>
+                  </div>
+
+                  {/* Bottom Card 2: To Hit (iOS Mirror) */}
+                  <div className="w-full shrink-0 px-5 py-6">
+                    <div className="text-center text-[14px] font-semibold text-white/40 mb-2 uppercase tracking-widest">To Hit</div>
+                    <div className="text-center bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 bg-clip-text text-transparent text-[52px] sm:text-[64px] font-black leading-none tracking-tight">
+                      {backfillingState?.dailyTarget ? Math.max(0, backfillingState.dailyTarget - (backfillingState.currentDayProgress || 0)).toLocaleString() : "—"}
+                    </div>
+                    <div className="mt-2 text-center text-[12px] font-medium text-white/20 uppercase tracking-widest">
+                      For {dateText}
+                    </div>
+                  </div>
+
+                  {/* Bottom Card 3: Today Hits (iOS Mirror) */}
+                  <div className="w-full shrink-0 px-5 py-6">
+                    <div className="text-center text-[14px] font-semibold text-white/40 mb-2 uppercase tracking-widest">Today Hits</div>
+                    <div className="flex items-center justify-center gap-4">
+                      <div className="bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 bg-clip-text text-transparent text-[52px] sm:text-[64px] font-black leading-none tracking-tight">
+                        {(backfillingState?.currentDayProgress || 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="mt-2 text-center text-[12px] font-medium text-white/20 uppercase tracking-widest">
+                      Lifetime: {totalVocabCounts.toLocaleString()}
+                    </div>
+                  </div>
+
+                  {/* Bottom Card 4: Missed Days (iOS Mirror) */}
+                  <div className="w-full shrink-0 px-5 py-6">
+                    <div className="text-center text-[14px] font-semibold text-white/40 mb-2 uppercase tracking-widest">Missed Days</div>
+                    <div className="text-center bg-gradient-to-r from-[#FF4D6D] to-[#FFB020] bg-clip-text text-transparent text-[52px] sm:text-[64px] font-black leading-none tracking-tight">
+                      {daysDifference < 0 ? Math.abs(daysDifference) : 0}
+                    </div>
+                    <div className="mt-2 text-center text-[12px] font-medium text-white/20 uppercase tracking-widest">
+                      Target: {rule?.toLocaleString() || 0} / Day
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

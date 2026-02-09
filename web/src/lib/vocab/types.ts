@@ -9,4 +9,6 @@ export type VocabularyEntry = {
   category?: string | null;
   updatedAt?: number;
   ai_explanation?: string | null;
+  ai_composition?: string | null;
+  ai_sentence?: string | null;
 };

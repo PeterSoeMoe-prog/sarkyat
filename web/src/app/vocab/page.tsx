@@ -1,12 +1,10 @@
 "use client";
 
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
-import { useState, useMemo, useEffect, Suspense, useRef } from "react";
+import { useState, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import ErrorBoundary from "@/components/ErrorBoundary";
-const { FixedSizeList: List } = require("react-window");
-const AutoSizer = require("react-virtualized-auto-sizer").default || require("react-virtualized-auto-sizer");
 
 type SortOption = "Recent" | "Count";
 
@@ -63,63 +61,11 @@ function VocabContent() {
     );
   }
 
-  const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
-    const it = filteredAndSortedItems[index];
-    return (
-      <div style={{ ...style, paddingBottom: "8px" }}>
-        <motion.div
-          layout
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="group relative rounded-2xl bg-white/5 border border-white/5 p-4 hover:bg-white/[0.08] transition-all overflow-hidden h-[84px]"
-        >
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="text-[17px] font-bold text-white tracking-tight mb-0.5 truncate">
-                {primaryLanguage === "Thai" ? it.thai : (it.burmese || "—")}
-              </div>
-              <div className="text-[13px] font-medium text-white/40 truncate">
-                {primaryLanguage === "Thai" ? (it.burmese || "—") : it.thai}
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="px-3 py-1.5 rounded-xl bg-black/20 border border-white/5 min-w-[48px] text-center">
-                <span className="text-[14px] font-black text-[#2CE08B] tabular-nums">
-                  {it.count || 0}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out pointer-events-none" />
-        </motion.div>
-      </div>
-    );
-  };
-
   return (
-    <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)] flex flex-col h-screen">
+    <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)] flex flex-col min-h-screen">
       <header className="mb-6 shrink-0">
-        {/* Active Category Chip */}
-        {categoryFilter && (
-          <div className="flex items-center justify-between bg-[#B36BFF]/10 border border-[#B36BFF]/20 rounded-2xl p-4 mb-4">
-            <div className="flex items-center gap-3">
-              <span className="text-xl">👑</span>
-              <div>
-                <p className="text-[10px] font-black text-[#B36BFF] uppercase tracking-widest leading-none mb-1">Category</p>
-                <h2 className="text-[18px] font-bold text-white tracking-tight leading-none">{categoryFilter}</h2>
-              </div>
-            </div>
-            <button 
-              onClick={() => router.push("/vocab")}
-              className="h-8 w-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-white/40 transition-all"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
         {/* Search and Filter */}
-        <div className="space-y-3 pt-4">
+        <div className="space-y-3 pt-4 mb-4">
           <div className="relative">
             <input
               type="text"
@@ -182,25 +128,63 @@ function VocabContent() {
             </div>
           </div>
         </div>
+
+        {/* Active Category Chip */}
+        {categoryFilter && (
+          <div className="flex items-center justify-between bg-[#B36BFF]/10 border border-[#B36BFF]/20 rounded-2xl p-4">
+            <div className="flex items-center gap-3">
+              <span className="text-xl">👑</span>
+              <div>
+                <p className="text-[10px] font-black text-[#B36BFF] uppercase tracking-widest leading-none mb-1">Category</p>
+                <h2 className="text-[18px] font-bold text-white tracking-tight leading-none">{categoryFilter}</h2>
+              </div>
+            </div>
+            <button 
+              onClick={() => router.push("/vocab")}
+              className="h-8 w-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-white/40 transition-all"
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </header>
 
-      {/* Virtualized List */}
-      <div className="flex-1 min-h-0">
-        {filteredAndSortedItems.length > 0 ? (
-          <AutoSizer>
-            {({ height, width }: any) => (
-              <List
-                height={height}
-                itemCount={filteredAndSortedItems.length}
-                itemSize={92}
-                width={width}
-                className="no-scrollbar"
-              >
-                {Row}
-              </List>
-            )}
-          </AutoSizer>
-        ) : (
+      {/* List */}
+      <div className="flex-1 space-y-2 pb-20">
+        <AnimatePresence mode="popLayout">
+          {filteredAndSortedItems.map((it) => (
+            <motion.div
+              key={it.id}
+              layout
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={() => router.push(`/counter?id=${it.id}`)}
+              className="group relative rounded-2xl bg-white/5 border border-white/5 p-4 hover:bg-white/[0.08] transition-all overflow-hidden cursor-pointer"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[17px] font-bold text-white tracking-tight mb-0.5 truncate">
+                    {primaryLanguage === "Thai" ? it.thai : (it.burmese || "—")}
+                  </div>
+                  <div className="text-[13px] font-medium text-white/40 truncate">
+                    {primaryLanguage === "Thai" ? (it.burmese || "—") : it.thai}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="px-3 py-1.5 rounded-xl bg-black/20 border border-white/5 min-w-[48px] text-center">
+                    <span className="text-[14px] font-black text-[#2CE08B] tabular-nums">
+                      {(it.count || 0).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out pointer-events-none" />
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {filteredAndSortedItems.length === 0 && (
           <div className="py-20 text-center">
             <div className="text-[40px] mb-4">📭</div>
             <div className="text-white/20 font-bold">No vocabulary found</div>

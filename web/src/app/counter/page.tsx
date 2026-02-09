@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
+import { ChevronLeft, Volume2, Plus, Minus, Info, Settings, List, Edit2, Check, X, RefreshCcw } from "lucide-react";
 import { Suspense, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
-import { upsertVocabulary } from "@/lib/vocab/firestore";
+import { fetchAiApiKey, upsertVocabulary } from "@/lib/vocab/firestore";
+import type { VocabularyEntry } from "@/lib/vocab/types";
 import { generateThaiExplanation } from "@/lib/gemini";
+import { parseThaiWord, CharBreakdown } from "@/lib/vocab/thaiParser";
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase/client";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
 
@@ -26,10 +29,26 @@ function CounterPageInner() {
   const ghostBtn =
     "rounded-full bg-[var(--surface)]/50 px-4 py-2 text-[13px] font-semibold text-[color:var(--foreground)] backdrop-blur-xl border border-[color:var(--border)] shadow-sm hover:shadow-md transition-shadow";
 
-  const { uid, isAnonymous, items, loading } = useVocabulary();
+  const { uid, isAnonymous, items, loading, vocabLogic, backfillingState } = useVocabulary();
   const isAuthed = !!uid && !isAnonymous;
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("id");
+
+  const currentTargetDate = useMemo(() => {
+    if (!backfillingState?.currentTargetDate) return new Date();
+    return new Date(backfillingState.currentTargetDate);
+  }, [backfillingState]);
+
+  const dateText = useMemo(() => {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const m = months[currentTargetDate.getMonth()] ?? "";
+    return `${m} ${currentTargetDate.getDate()}, ${currentTargetDate.getFullYear()}`;
+  }, [currentTargetDate]);
+
+  const toHitCount = useMemo(() => {
+    if (!backfillingState?.dailyTarget) return 0;
+    return Math.max(0, backfillingState.dailyTarget - (backfillingState.currentDayProgress || 0));
+  }, [backfillingState]);
 
   const current = useMemo(() => {
     if (!isAuthed) return null;
@@ -414,13 +433,113 @@ function CounterPageInner() {
     return <div key={lineKey} className="text-[13px] leading-6 font-semibold text-white/80">{trimmed}</div>;
   };
 
-  const renderAiExplain = (text: string) => {
-    const lines = String(text ?? "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-    return <div className="space-y-2">{lines.map((line, idx) => renderExplainLine(line, "ai-" + idx))}</div>;
+  const [aiRefreshingPart, setAiRefreshingPart] = useState<'composition' | 'sentence' | null>(null);
+
+  const renderAiExplain = (text: string, composition?: string | null, sentence?: string | null) => {
+    // If we have persistent fields, use them. Otherwise parse the combined text.
+    let comp = composition;
+    let sent = sentence;
+
+    if (!comp && !sent && text) {
+      const compMatch = text.match(/<composition>([\s\S]*?)<\/composition>/);
+      const sentMatch = text.match(/<sentence>([\s\S]*?)<\/sentence>/);
+      comp = compMatch ? compMatch[1].trim() : null;
+      sent = sentMatch ? sentMatch[1].trim() : null;
+      
+      // Fallback for old data without tags
+      if (!comp && !sent) {
+        const lines = text.split("\n").filter(l => l.trim());
+        const compositionLines = lines.filter(l => !l.startsWith("ဝါကျ -"));
+        const sentenceLines = lines.filter(l => l.startsWith("ဝါကျ -"));
+        comp = compositionLines.join("\n");
+        sent = sentenceLines.map(l => l.replace(/^ဝါကျ\s*-\s*/, '').trim()).join("\n");
+      }
+    }
+
+    if (sent) {
+      // First, handle the case where Thai and Burmese are on the same line with parentheses
+      // e.g. "Thai sentence (Burmese translation)" -> "Thai sentence\nBurmese translation"
+      if (sent.includes(' (') && sent.includes(')')) {
+        sent = sent.replace(/\s*\((.*?)\)/g, '\n$1');
+      }
+      
+      sent = sent.split("\n").map(l => 
+        l.replace(/^ဝါကျ\s*-\s*/, '')
+         .replace(/^\s*[\(\{\[]\s*/, '')
+         .replace(/\s*[\)\}\]]\s*$/, '')
+         .trim()
+      ).filter(l => l.length > 0).join("\n");
+    }
+
+    return (
+      <div className="space-y-6">
+        {comp && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[16px] font-bold text-[#F5C542] tracking-wide">ဖွဲ့စည်းပုံ</span>
+              <button 
+                onClick={() => void startAutoExplain('composition')}
+                disabled={aiBusy}
+                className="p-1.5 rounded-lg hover:bg-white/5 text-white/40 hover:text-white/70 transition-colors disabled:opacity-30"
+              >
+                <RefreshCcw size={14} className={aiRefreshingPart === 'composition' ? "animate-spin" : ""} />
+              </button>
+            </div>
+            <div className="space-y-2">
+              {comp.split("\n").filter(l => l.trim()).map((line, idx) => (
+                <div key={idx} className="text-[15px] leading-relaxed text-white/90 font-medium">
+                  {line}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {sent && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[16px] font-bold text-[#F5C542] tracking-wide">ဝါကျ</span>
+              <button 
+                onClick={() => void startAutoExplain('sentence')}
+                disabled={aiBusy}
+                className="p-1.5 rounded-lg hover:bg-white/5 text-white/40 hover:text-white/70 transition-colors disabled:opacity-30"
+              >
+                <RefreshCcw size={14} className={aiRefreshingPart === 'sentence' ? "animate-spin" : ""} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              {sent.split("\n").filter(l => l.trim()).map((line, idx) => {
+                const isBurmese = /[\u1000-\u109F]/.test(line);
+                const isThai = /[\u0E00-\u0E7F]/.test(line);
+                return (
+                  <div key={idx} className={`text-[15px] leading-relaxed font-medium ${isBurmese ? 'text-white/70' : 'text-white/90'}`}>
+                    {isThai ? (
+                      <button 
+                        type="button" 
+                        onClick={() => void playThaiTts(line, `sent-${idx}`)}
+                        className={`text-left transition-opacity ${ttsActive === `sent-${idx}` ? 'opacity-70' : 'opacity-100'}`}
+                      >
+                        {line}
+                      </button>
+                    ) : (
+                      line
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
-  const startAutoExplain = async () => {
-    if (!isAuthed || !uid || !current || (current.ai_explanation && String(current.ai_explanation).trim().length > 0) || aiDismissedId === current.id || aiBusy || aiSaving || (aiForId === current.id && (aiDraft || aiError))) return;
+  const startAutoExplain = async (refreshPart?: 'composition' | 'sentence') => {
+    if (!isAuthed || !uid || !current || aiBusy || aiSaving) return;
+    
+    // If not refreshing and we already have an explanation, stop
+    if (!refreshPart && (current.ai_explanation || (current.ai_composition && current.ai_sentence))) return;
+
     const until = readAiRateLimitUntil(), now = Date.now();
     if (until > now) {
       const secs = Math.max(1, Math.ceil((until - now) / 1000));
@@ -428,24 +547,41 @@ function CounterPageInner() {
       setAiForId(current.id);
       return;
     }
-    const apiKey = readGoogleAiKey();
-    if (!apiKey) {
-      setAiError("Missing API key. Add it in Settings.");
-      setAiDraft(null); setAiForId(current.id);
-      return;
-    }
-    setAiBusy(true); setAiError(null); setAiDraft(null); setAiForId(current.id);
+
+    setAiBusy(true);
+    setAiError(null);
+    setAiDraft(null);
+    setAiForId(current.id);
+    if (refreshPart) setAiRefreshingPart(refreshPart);
+
     try {
-      const text = await generateThaiExplanation(apiKey, thai, burmese);
-      setAiDraft(text);
-    } catch (e: any) {
-      const raw = (e?.message ? String(e.message) : "AI request failed").trim();
-      if (raw.startsWith("RATE_LIMIT:")) {
-        const m = raw.match(/retry_after=(\d+)s/i), seconds = m?.[1] ? Number(m[1]) : 60;
-        writeAiRateLimitUntil(Date.now() + seconds * 1000);
-        setAiError("ယနေ့ Limit ပြည့်သွားပါ၍ " + seconds + " စက္ကန့်မှ ပြန်ကြည့်ပေးပါ။");
-      } else setAiError(raw);
-    } finally { setAiBusy(false); }
+      const key = await fetchAiApiKey(uid);
+      if (!key) throw new Error("Settings တွင် AI API Key အရင်ထည့်ပေးပါ။");
+
+      const response = await generateThaiExplanation(key, current.thai, current.burmese, vocabLogic || undefined);
+      
+      // Parse tags
+      const compMatch = response.match(/<composition>([\s\S]*?)<\/composition>/);
+      const sentMatch = response.match(/<sentence>([\s\S]*?)<\/sentence>/);
+      const newComp = compMatch ? compMatch[1].trim() : "";
+      const newSent = sentMatch ? sentMatch[1].trim() : "";
+
+      // If refreshing a specific part, merge with existing
+      const updatedEntry: VocabularyEntry = {
+        ...current,
+        ai_composition: refreshPart === 'sentence' ? current.ai_composition : newComp,
+        ai_sentence: refreshPart === 'composition' ? current.ai_sentence : newSent,
+        ai_explanation: null // Move away from combined field
+      };
+
+      await upsertVocabulary(uid, updatedEntry);
+      setAiDraft(null); // No draft needed if we save immediately
+    } catch (err: any) {
+      setAiError(err.message || "AI Request error");
+    } finally {
+      setAiBusy(false);
+      setAiRefreshingPart(null);
+    }
   };
 
   const confirmAndSaveAi = async () => {
@@ -466,7 +602,7 @@ function CounterPageInner() {
     void playThaiTts(thai, "main-" + current.id);
   }, [current?.id, isAuthed, soundLevel]);
 
-  const showAiExplain = current?.ai_explanation || (current?.id && aiDismissedId !== current.id && (aiBusy || aiError || aiDraft));
+  const showAiExplain = current?.ai_composition || current?.ai_sentence || current?.ai_explanation || (current?.id && aiDismissedId !== current.id && (aiBusy || aiError || aiDraft));
 
   return (
     <div className="min-h-screen bg-[#0A0B0F] text-white">
@@ -532,17 +668,38 @@ function CounterPageInner() {
                         <div className="absolute bottom-[5px] right-[5px] z-30"><button type="button" onClick={(e) => { e.stopPropagation(); if (isAuthed && current && !countBusy) decrementCount(); }} className="h-[72px] w-[72px] sm:h-[82px] sm:w-[82px] rounded-full border-4 border-white/90 bg-gradient-to-br from-[#FF4D6D] to-[#FF7A00] flex items-center justify-center text-[30px] sm:text-[36px] font-black text-white">↓</button></div>
                       </div>
                     </div>
-                    <div className="mt-auto pt-5"><div className="w-full rounded-2xl border border-white/20 bg-black/40 px-4 py-3 flex items-center justify-between text-[11px] font-semibold h-[60px] relative"><div className="z-10 text-white/60">To Hit</div><div className="z-10 text-white/45">For Apr 7, 2025</div><div className="absolute inset-0 flex items-center justify-center text-[50px] font-semibold bg-gradient-to-r from-[#60A5FA] to-[#FF4D6D] bg-clip-text text-transparent">240</div></div></div>
+                    <div className="mt-auto pt-5">
+                      <div className="w-full rounded-2xl border border-white/20 bg-black/40 px-4 py-3 flex items-center justify-between text-[11px] font-semibold h-[80px] relative">
+                        <div className="z-10 text-white/60">To Hit</div>
+                        <div className="z-10 text-white/45">For {dateText}</div>
+                        <div className="absolute inset-0 flex items-center justify-center text-[50px] font-semibold bg-gradient-to-r from-[#60A5FA] to-[#FF4D6D] bg-clip-text text-transparent">
+                          {toHitCount.toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                    
                     {showAiExplain && (
                       <div className="mt-6 w-full flex flex-col">
-                        <div className="px-1 mb-2"><h3 className="text-[14px] font-bold text-white/90">ရှင်းလင်းချက်</h3></div>
                         <div className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-4 flex flex-col max-h-[70vh]">
-                          <div className="flex items-center justify-between">
-                            <button onClick={() => setIsEditing(!isEditing)} className="text-[14px] font-semibold text-[#60A5FA]">Edit</button>
+                          <div className="flex items-center justify-end">
                             {!current.ai_explanation && <button type="button" onClick={() => { setAiDraft(null); setAiError(null); setAiDismissedId(current.id); }} className={ghostBtn}>Close</button>}
                           </div>
                           <div className="mt-3 flex-1 overflow-y-auto pb-[100px]">
-                            {current.ai_explanation ? <div>{renderAiExplain(String(current.ai_explanation))}</div> : aiBusy ? <div className="text-white/60">Generating…</div> : aiError ? <div className="text-red-200">{aiError} <button onClick={() => void startAutoExplain()} className="underline">Retry</button></div> : aiDraft ? <div className="space-y-4"><div>{renderAiExplain(aiDraft)}</div><div className="flex gap-3"><button onClick={() => setAiDraft(null)} className={ghostBtn}>Discard</button><button onClick={confirmAndSaveAi} disabled={aiSaving} className="flex-1 py-3 rounded-xl bg-[#2CE08B] text-black font-black">Keep this Explanation</button></div></div> : null}
+                            {current.ai_composition || current.ai_sentence || current.ai_explanation ? (
+                              <div>{renderAiExplain(String(current.ai_explanation || ""), current.ai_composition, current.ai_sentence)}</div>
+                            ) : aiBusy ? (
+                              <div className="text-white/60">Generating…</div>
+                            ) : aiError ? (
+                              <div className="text-red-200">{aiError} <button onClick={() => void startAutoExplain()} className="underline">Retry</button></div>
+                            ) : aiDraft ? (
+                              <div className="space-y-4">
+                                <div>{renderAiExplain(aiDraft)}</div>
+                                <div className="flex gap-3">
+                                  <button onClick={() => setAiDraft(null)} className={ghostBtn}>Discard</button>
+                                  <button onClick={confirmAndSaveAi} disabled={aiSaving} className="flex-1 py-3 rounded-xl bg-[#2CE08B] text-black font-black">Keep this Explanation</button>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       </div>

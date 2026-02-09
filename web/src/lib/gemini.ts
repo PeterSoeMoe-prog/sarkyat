@@ -60,7 +60,8 @@ async function listModelsDiagnostic(apiKey: string): Promise<string> {
 export async function generateThaiExplanation(
   apiKey: string,
   thai: string,
-  burmese?: string | null
+  burmese?: string | null,
+  logic?: { consonants?: string; vowels?: string; tones?: string }
 ): Promise<string> {
   const key = (apiKey ?? "").trim();
   if (!key) throw new Error("Missing API key");
@@ -68,29 +69,46 @@ export async function generateThaiExplanation(
   const genAI = new GoogleGenerativeAI(key);
   const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
+  let logicContext = "";
+  if (logic) {
+    if (logic.consonants) logicContext += `USER-DEFINED CONSONANT NAMES/MAPPINGS (use these when analyzing ဗျည်း and အသတ်ဗျည်း):\n${logic.consonants}\n\n`;
+    if (logic.vowels) logicContext += `USER-DEFINED VOWEL NAMES/MAPPINGS (use these when analyzing သရ):\n${logic.vowels}\n\n`;
+    if (logic.tones) logicContext += `USER-DEFINED TONE NAMES/MAPPINGS (use these when analyzing Tone):\n${logic.tones}\n\n`;
+  }
+
   const prompt =
     `You must respond in Burmese (Myanmar) language and follow the STRICT output format below.\n` +
-    `Output MUST be plain text only (no markdown, no bullets other than the exact lines requested).\n\n` +
+    `Output MUST be plain text with XML-like tags for separation.\n\n` +
+    (logicContext ? `STRICT REQUIREMENT: USE THE FOLLOWING USER-DEFINED VOCAB LOGIC. If a Thai character exists in these lists, you MUST use the corresponding Burmese name provided below:\n${logicContext}` : "") +
     `STRICT FORMAT (copy this structure exactly):\n\n` +
-    `စာလုံး (အဓိပ္ပာယ်)\n\n` +
-    `ဖွဲ့စည်းပုံ - ဗျည်း [Thai] + သရ [Thai] + အသတ် [Thai] (Tone - Burmese explanation)\n\n` +
-    `ဝါကျ - [Thai Sentence] ([Burmese Translation])\n` +
-    `ဝါကျ - [Thai Sentence] ([Burmese Translation])\n` +
-    `ဝါကျ - [Thai Sentence] ([Burmese Translation])\n` +
-    `ဝါကျ - [Thai Sentence] ([Burmese Translation])\n\n` +
+    `<composition>\n` +
+    `[Sound] [ThaiChar Type (BurmeseName) + ThaiChar Type (BurmeseName) + ...]\n` +
+    `...\n` +
+    `</composition>\n` +
+    `<sentence>\n` +
+    `[Thai Sentence]\n` +
+    `[Burmese Translation]\n` +
+    `</sentence>\n\n` +
     `TARGET WORD:\n` +
-    `Thai word: ${(thai ?? "").trim() || "(empty)"}\n` +
-    (burmese ? `Known Burmese meaning: ${(burmese ?? "").trim()}\n` : "") +
+    `Thai word: ${(thai ?? "").trim()}\n` +
+    `Burmese meaning: ${(burmese ?? "").trim()}\n` +
     `\n` +
     `IMPORTANT RULES:\n` +
-    `1) In the structure line (ဖွဲ့စည်းပုံ), you MUST write Thai consonants/vowels/final markers in Thai script inside [brackets].\n` +
-    `   - Do NOT replace Thai letters with Burmese character names.\n` +
-    `   - You MAY add Burmese pronunciation in parentheses AFTER the Thai script, e.g. [ม (มอ - မော)].\n` +
-    `2) Structure line must match exactly:\n` +
-    `   ဖွဲ့စည်းပုံ - ဗျည်း [<Thai consonant(s)>] + သရ [<Thai vowel(s)>] + အသတ် [<Thai final/marker or none>] (Tone - <Burmese explanation>)\n` +
-    `3) Provide exactly 4 example sentence lines. Each line MUST match exactly:\n` +
-    `   ဝါကျ - <Thai Sentence> (<Burmese Translation>)\n` +
-    `4) No extra sections, no extra commentary.\n`;
+    `1) DO NOT show any section headers. Start directly with the <composition> tag.\n` +
+    `2) Break the word into its individual sounds/syllables.\n` +
+    `3) For EACH sound, show its composition in ONE LINE following this exact pattern:\n` +
+    `   Sound [ThaiChar Type (BurmeseName) + ThaiChar Type (BurmeseName) + ...]\n` +
+    `   Example for "ดอกจำပာ": \n` +
+    `   ดอก [ဒ ဗျည်း (ဒေါ-ဒေက်) + အ သရ (အော-) + က အသတ်ဗျည်း (ကော-ကိုင်)]\n` +
+    `   จำ [จ ဗျည်း (ကျော-ကျန်) + -ำ သရ (အမ်)]\n` +
+    `   ပာ [ပ ဗျည်း (ပော-ပား) + -ာ သရ (အာ)]\n` +
+    `4) Types to use in Burmese: ဗျည်း, သရ, Tone, အသတ်ဗျည်း.\n` +
+    `5) Use Thai script for characters and Burmese names from the USER-DEFINED logic.\n` +
+    `6) Provide exactly ONE simple example sentence inside the <sentence> tag on TWO LINES. \n` +
+    `   Line 1: Thai Sentence\n` +
+    `   Line 2: Burmese Translation (DO NOT USE PARENTHESES OR BRACES)\n` +
+    `   STRICT RULE: DO NOT include "ဝါကျ -" prefix or any other labels inside the <sentence> tag.\n` +
+    `7) No extra sections, no extra commentary.\n`;
 
   try {
     const result = await model.generateContent(prompt);

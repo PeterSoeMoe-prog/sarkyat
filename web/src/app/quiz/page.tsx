@@ -27,13 +27,20 @@ export default function QuizPage() {
   const [feedbackText, setFeedbackText] = useState<string | null>(null);
   const [timeRemaining, setTimeRemaining] = useState(5);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const [isGenerating, setIsGenerating] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [dataReady, setDataReady] = useState(false);
   const correctAudioRef = useRef<HTMLAudioElement | null>(null);
   const wrongAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    correctAudioRef.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3"); // Success chime
-    wrongAudioRef.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2003/2003-preview.mp3"); // Error buzzer
+    if (!loading && items.length > 0) {
+      setDataReady(true);
+    }
+  }, [loading, items]);
+
+  useEffect(() => {
+    correctAudioRef.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3");
+    wrongAudioRef.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2003/2003-preview.mp3");
   }, []);
 
   const ttsBusy = useRef(false);
@@ -141,16 +148,18 @@ export default function QuizPage() {
     setFeedbackText("TIME'S UP");
     
     wrongAudioRef.current?.play().catch(() => {});
-    setFailedVocabIDs(prev => {
-      const newIds = [...new Set([...prev, question.vocabID])];
-      if (uid) {
-        fetchFailedQuizIds(uid).then(existingIds => {
-          const combined = [...new Set([...existingIds, ...newIds])];
-          saveFailedQuizIds(uid, combined);
-        });
-      }
-      return newIds;
-    });
+    
+    // Add to current session local state
+    setFailedVocabIDs(prev => [...new Set([...prev, question.vocabID])]);
+    
+    // Add to persistent Firestore storage (merging with existing)
+    if (uid) {
+      fetchFailedQuizIds(uid).then(existingIds => {
+        const combined = [...new Set([...existingIds, question.vocabID])];
+        saveFailedQuizIds(uid, combined);
+      });
+    }
+    
     downgradeReadyToDrill(question.vocabID);
 
     setTimeout(() => {
@@ -193,17 +202,19 @@ export default function QuizPage() {
       setScore(prev => prev + 1);
       correctAudioRef.current?.play().catch(() => {});
     } else {
-      setFailedVocabIDs(prev => {
-        const newIds = [...new Set([...prev, question.vocabID])];
-        if (uid) {
-          fetchFailedQuizIds(uid).then(existingIds => {
-            const combined = [...new Set([...existingIds, ...newIds])];
-            saveFailedQuizIds(uid, combined);
-          });
-        }
-        return newIds;
-      });
       wrongAudioRef.current?.play().catch(() => {});
+      
+      // Add to current session local state
+      setFailedVocabIDs(prev => [...new Set([...prev, question.vocabID])]);
+      
+      // Add to persistent Firestore storage (merging with existing)
+      if (uid) {
+        fetchFailedQuizIds(uid).then(existingIds => {
+          const combined = [...new Set([...existingIds, question.vocabID])];
+          saveFailedQuizIds(uid, combined);
+        });
+      }
+      
       await downgradeReadyToDrill(question.vocabID);
     }
 
@@ -226,10 +237,10 @@ export default function QuizPage() {
   }, [questions, currentIndex, selectedAnswer, score, downgradeReadyToDrill]);
 
   useEffect(() => {
-    if (!loading && items.length > 0 && questions.length === 0) {
+    if (dataReady && questions.length === 0) {
       generateQuiz();
     }
-  }, [loading, items, questions.length, generateQuiz]);
+  }, [dataReady, questions.length, generateQuiz]);
 
   useEffect(() => {
     if (questions.length > 0 && !showResult && selectedAnswer === null) {
@@ -241,7 +252,7 @@ export default function QuizPage() {
     };
   }, [currentIndex, questions, showResult, selectedAnswer, startTimer, playThaiTts]);
 
-  if (loading || isGenerating) {
+  if (!dataReady || isGenerating) {
     return (
       <div className="min-h-screen bg-[#0A0B0F] flex items-center justify-center">
         <div className="text-white/60 font-bold tracking-widest uppercase">Loading Quiz...</div>

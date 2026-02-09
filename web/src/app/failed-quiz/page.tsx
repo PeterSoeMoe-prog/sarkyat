@@ -80,7 +80,12 @@ export default function FailedQuizPage() {
             >
               Back
             </Link>
-            <div className="text-[17px] font-bold tracking-tight">ဒါတွေ ပြန်ကျက်ဖို့လိုမယ်</div>
+            <div className="flex items-center gap-3">
+              <div className="text-[17px] font-bold tracking-tight">ဒါတွေ ပြန်ကျက်ဖို့လိုမယ်</div>
+              <div className="px-2.5 py-0.5 rounded-full bg-[#FF4D6D]/10 border border-[#FF4D6D]/20">
+                <span className="text-[13px] font-black text-[#FF4D6D] tabular-nums">{failedItems.length}</span>
+              </div>
+            </div>
             <div className="w-[60px]" />
           </header>
 

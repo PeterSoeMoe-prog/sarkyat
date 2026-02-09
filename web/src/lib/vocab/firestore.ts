@@ -31,6 +31,8 @@ type VocabDoc = {
   status: VocabularyStatus;
   category?: string | null;
   ai_explanation?: string | null;
+  ai_composition?: string | null;
+  ai_sentence?: string | null;
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -70,6 +72,8 @@ function normalizeDoc(data: VocabDoc): VocabularyEntry {
     category: data.category ?? null,
     updatedAt: asMillis(data.updatedAt),
     ai_explanation: typeof data.ai_explanation === "string" ? data.ai_explanation : null,
+    ai_composition: typeof data.ai_composition === "string" ? data.ai_composition : null,
+    ai_sentence: typeof data.ai_sentence === "string" ? data.ai_sentence : null,
   };
 }
 
@@ -188,7 +192,7 @@ export function listenVocabulary(
 export async function upsertVocabulary(uid: string, entry: VocabularyEntry) {
   const db = getFirebaseDb();
   const ref = doc(db, vocabCollectionPath(uid), entry.id);
-  const payload: VocabDoc = {
+  const payload: Partial<VocabDoc> = {
     id: entry.id,
     thai: entry.thai,
     burmese: entry.burmese ?? null,
@@ -196,6 +200,8 @@ export async function upsertVocabulary(uid: string, entry: VocabularyEntry) {
     status: entry.status ?? "queue",
     category: entry.category ?? null,
     ai_explanation: entry.ai_explanation ?? null,
+    ai_composition: entry.ai_composition ?? null,
+    ai_sentence: entry.ai_sentence ?? null,
     updatedAt: serverTimestamp(),
   };
 
@@ -292,8 +298,37 @@ export async function importVocabularyRows(uid: string, rows: ImportVocabularyRo
 }
 
 /**
- * Failed Quiz Persistence
+ * Persistent Settings Storage
  */
+export type VocabLogic = {
+  consonants?: string;
+  vowels?: string;
+  tones?: string;
+};
+
+export async function saveVocabLogic(uid: string, logic: VocabLogic): Promise<void> {
+  if (!uid) return;
+  const db = getFirebaseDb();
+  const ref = doc(db, "users", uid, "settings", "vocab_logic");
+  await setDoc(ref, { ...logic, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function fetchVocabLogic(uid: string): Promise<VocabLogic | null> {
+  if (!uid) return null;
+  const db = getFirebaseDb();
+  const ref = doc(db, "users", uid, "settings", "vocab_logic");
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    const data = snap.data();
+    return {
+      consonants: data.consonants ?? "",
+      vowels: data.vowels ?? "",
+      tones: data.tones ?? "",
+    };
+  }
+  return null;
+}
+
 export async function saveFailedQuizIds(uid: string, ids: string[]): Promise<void> {
   if (!uid) return;
   const db = getFirebaseDb();

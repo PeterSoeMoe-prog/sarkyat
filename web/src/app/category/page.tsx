@@ -17,6 +17,8 @@ type CategoryStats = {
   glow: string;
 };
 
+import { parseThaiWord } from "@/lib/vocab/thaiParser";
+
 function CategoryCircle({ stats, isSelected, onClick }: { stats: CategoryStats, isSelected: boolean, onClick: () => void }) {
   const radius = 60;
   const stroke = 4;
@@ -72,40 +74,70 @@ function CategoryCircle({ stats, isSelected, onClick }: { stats: CategoryStats, 
   );
 }
 
-function VocabList({ categoryName, items }: { categoryName: string, items: VocabularyEntry[] }) {
+function VocabList({ categoryName, items, onClose }: { categoryName: string, items: VocabularyEntry[], onClose: () => void }) {
+  const router = useRouter();
+  const { vocabLogic } = useVocabulary();
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: "100%" }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      className="mt-8 rounded-[32px] bg-white/5 border border-white/10 backdrop-blur-2xl overflow-hidden shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)]"
+      exit={{ opacity: 0, y: "100%" }}
+      transition={{ type: "spring", damping: 25, stiffness: 200 }}
+      className="fixed inset-x-0 bottom-0 z-[100] h-[80vh] rounded-t-[32px] bg-[#1A1B23] border-t border-white/10 shadow-[0_-20px_80px_rgba(0,0,0,0.5)] flex flex-col max-w-md mx-auto"
     >
-      <div className="p-6 border-b border-white/5 bg-white/5 flex items-center justify-between">
-        <h3 className="text-[18px] font-bold text-white tracking-tight">{categoryName}</h3>
-        <span className="px-3 py-1 rounded-full bg-white/10 text-[12px] font-black text-white/40 uppercase tracking-widest">{items.length} Items</span>
+      <div className="p-6 border-b border-white/5 flex items-center justify-between shrink-0">
+        <div>
+          <p className="text-[10px] font-black text-[#B36BFF] uppercase tracking-widest leading-none mb-1">Category</p>
+          <h3 className="text-[20px] font-bold text-white tracking-tight">{categoryName}</h3>
+        </div>
+        <button 
+          onClick={onClose}
+          className="h-10 w-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+        >
+          <span className="text-[20px] text-white/40">✕</span>
+        </button>
       </div>
-      <div className="max-h-[400px] overflow-y-auto custom-scrollbar">
+      <div className="flex-1 overflow-y-auto custom-scrollbar px-2 pb-10">
         <div className="divide-y divide-white/5">
-          {items.map((item, idx) => (
-            <motion.div 
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: idx * 0.03 }}
-              key={item.id} 
-              className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors group"
-            >
-              <div className="flex-1 min-w-0 pr-4">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <h4 className="text-[16px] font-bold text-white group-hover:text-[#49D2FF] transition-colors truncate">{item.thai}</h4>
-                  <span className={`h-1.5 w-1.5 rounded-full ${item.status === 'ready' ? 'bg-[#2CE08B]' : item.status === 'drill' ? 'bg-[#FFB020]' : 'bg-[#FF4D6D]'} shadow-[0_0_8px_currentColor]`} />
+          {items.map((item, idx) => {
+            const breakdown = vocabLogic ? parseThaiWord(item.thai, vocabLogic) : [];
+            return (
+              <motion.div 
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.02 }}
+                key={item.id} 
+                onClick={() => router.push(`/counter?id=${item.id}`)}
+                className="p-5 flex flex-col hover:bg-white/5 transition-colors group cursor-pointer"
+              >
+                <div className="flex items-center justify-between gap-4 mb-3">
+                  <div className="flex-1 min-w-0 pr-4">
+                    <h4 className="text-[18px] font-bold text-white group-hover:text-[#49D2FF] transition-colors truncate">{item.thai}</h4>
+                    <p className="text-[14px] font-medium text-white/40 truncate">{item.burmese || 'No translation'}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-[16px] font-black text-white/20 tabular-nums">
+                      {(item.count || 0).toLocaleString()}
+                    </span>
+                  </div>
                 </div>
-                <p className="text-[13px] font-medium text-white/40 truncate">{item.burmese || 'No translation'}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[11px] font-black text-white/20 uppercase tracking-widest">{item.status}</p>
-              </div>
-            </motion.div>
-          ))}
+                
+                {breakdown.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                    {breakdown.map((b, bIdx) => (
+                      <div key={bIdx} className="flex flex-col items-center px-2 py-1 rounded-lg bg-white/5 border border-white/5 min-w-[32px]">
+                        <span className="text-[12px] font-bold text-white/80">{b.char}</span>
+                        <span className="text-[8px] font-black text-[#FF4D6D] uppercase leading-none mt-0.5">
+                          {b.type === 'consonant' ? 'ဗျည်း' : b.type === 'vowel' ? 'သရ' : b.type === 'tone' ? 'Tone' : b.type === 'final' ? 'အသတ်ဗျည်း' : '-'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            );
+          })}
         </div>
       </div>
     </motion.div>
@@ -199,23 +231,30 @@ export default function CategoryPage() {
                   stats={cat} 
                   isSelected={selectedCategory === cat.name}
                   onClick={() => {
-                    if (selectedCategory === cat.name) {
-                      router.push(`/vocab?category=${encodeURIComponent(cat.name)}`);
-                    } else {
-                      setSelectedCategory(cat.name);
-                    }
+                    setSelectedCategory(cat.name);
                   }}
                 />
               ))}
             </div>
 
-            <AnimatePresence mode="wait">
+            <AnimatePresence>
               {selectedCategory && (
-                <VocabList 
-                  key={selectedCategory}
-                  categoryName={selectedCategory} 
-                  items={filteredItems} 
-                />
+                <>
+                  {/* Backdrop */}
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => setSelectedCategory(null)}
+                    className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm"
+                  />
+                  <VocabList 
+                    key={selectedCategory}
+                    categoryName={selectedCategory} 
+                    items={filteredItems} 
+                    onClose={() => setSelectedCategory(null)}
+                  />
+                </>
               )}
             </AnimatePresence>
           </div>

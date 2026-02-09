@@ -19,6 +19,8 @@ function formatDateDisplay(isoString: string) {
   return `${d}/${m}/${y}`;
 }
 
+import { SignInBottomSheet } from "@/components/SignInBottomSheet";
+
 export default function SettingsPage() {
   const { 
     uid, 
@@ -35,6 +37,8 @@ export default function SettingsPage() {
     rule,
     setRule,
     items,
+    vocabLogic,
+    updateVocabLogic,
   } = useVocabulary();
   const router = useRouter();
   const [accountOpen, setAccountOpen] = useState(false);
@@ -48,6 +52,30 @@ export default function SettingsPage() {
     return false;
   });
   const [isEditingAiKey, setIsEditingAiKey] = useState(false);
+
+  // Vocab Logic State
+  const [localConsonants, setLocalConsonants] = useState("");
+  const [localVowels, setLocalVowels] = useState("");
+  const [localTones, setLocalTones] = useState("");
+  const [isEditingVocabLogic, setIsEditingVocabLogic] = useState(false);
+  const [showSignIn, setShowSignIn] = useState(false);
+
+  useEffect(() => {
+    if (vocabLogic) {
+      setLocalConsonants(vocabLogic.consonants || "");
+      setLocalVowels(vocabLogic.vowels || "");
+      setLocalTones(vocabLogic.tones || "");
+    }
+  }, [vocabLogic]);
+
+  const handleSaveVocabLogic = async () => {
+    await updateVocabLogic({
+      consonants: localConsonants,
+      vowels: localVowels,
+      tones: localTones,
+    });
+    setIsEditingVocabLogic(false);
+  };
   
   const [localRule, setLocalRule] = useState<string>("");
   const [localXDate, setLocalXDate] = useState(DEFAULT_STARTING_DATE);
@@ -243,13 +271,28 @@ export default function SettingsPage() {
                 </button>
               </div>
             ) : (
-              <div className="text-center py-2">
-                <p className="text-[14px] font-bold text-[color:var(--muted-strong)]">Sign in required</p>
-                <p className="text-[12px] font-medium text-[color:var(--muted)] mt-1">Unlock pro features to sync data</p>
+              <div className="flex items-center justify-between p-3.5">
+                <div className="text-left">
+                  <p className="text-[14px] font-bold text-[color:var(--muted-strong)]">Sign in required</p>
+                  <p className="text-[12px] font-medium text-[color:var(--muted)] mt-1">Unlock pro features to sync data</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSignIn(true)}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#B36BFF] to-[#49D2FF] text-[10px] font-black text-white uppercase tracking-widest hover:shadow-lg transition-all active:scale-95 shadow-[#B36BFF]/20"
+                >
+                  Sign In
+                </button>
               </div>
             )}
           </div>
         </section>
+
+        <AnimatePresence>
+          {showSignIn && (
+            <SignInBottomSheet onClose={() => setShowSignIn(false)} />
+          )}
+        </AnimatePresence>
 
 
         {/* Rule Section */}
@@ -401,6 +444,90 @@ export default function SettingsPage() {
         <section className="mb-8">
           <h2 className="text-[14px] font-bold uppercase tracking-wider text-[#FF4D6D] px-1 mb-3">AI Intelligence</h2>
           
+          {/* Vocab Logic Section */}
+          <div className="rounded-[24px] bg-white/5 p-2 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-white/10 backdrop-blur-3xl mb-3">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between p-3.5">
+                <div className="flex items-center gap-4">
+                  <div className="h-10 w-10 rounded-xl bg-white/5 flex items-center justify-center text-[20px] shadow-inner">🧠</div>
+                  <div>
+                    <h3 className="text-[14px] font-bold text-white/90">Vocab logic</h3>
+                    <p className="text-[11px] font-medium text-white/30 uppercase tracking-widest">
+                      Rules for ရှင်းလင်းချက်
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isEditingVocabLogic) {
+                      handleSaveVocabLogic();
+                    } else {
+                      setIsEditingVocabLogic(true);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl bg-white/5 text-[10px] font-black text-white/40 uppercase tracking-widest hover:bg-white/10 hover:text-white/60 transition-all active:scale-95 border border-white/5"
+                >
+                  {isEditingVocabLogic ? "Save" : "Edit"}
+                </button>
+              </div>
+
+              <AnimatePresence>
+                {isEditingVocabLogic && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-3.5 pb-3.5 pt-0 space-y-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Consonants</label>
+                        <textarea
+                          value={localConsonants}
+                          onChange={(e) => setLocalConsonants(e.target.value)}
+                          placeholder="Enter consonants list..."
+                          className="w-full bg-black/20 rounded-xl px-4 py-3 text-[13px] font-medium text-white/80 border border-white/5 focus:outline-none focus:ring-1 focus:ring-[#FF4D6D]/30 transition-all placeholder:text-white/10 min-h-[400px] resize-y"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Vowels</label>
+                        <textarea
+                          value={localVowels}
+                          onChange={(e) => setLocalVowels(e.target.value)}
+                          placeholder="Enter vowels list..."
+                          className="w-full bg-black/20 rounded-xl px-4 py-3 text-[13px] font-medium text-white/80 border border-white/5 focus:outline-none focus:ring-1 focus:ring-[#FF4D6D]/30 transition-all placeholder:text-white/10 min-h-[150px] resize-y"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-white/20 uppercase tracking-widest px-1">Tones</label>
+                        <textarea
+                          value={localTones}
+                          onChange={(e) => setLocalTones(e.target.value)}
+                          placeholder="Enter tones list..."
+                          className="w-full bg-black/20 rounded-xl px-4 py-3 text-[13px] font-medium text-white/80 border border-white/5 focus:outline-none focus:ring-1 focus:ring-[#FF4D6D]/30 transition-all placeholder:text-white/10 min-h-[150px] resize-y"
+                        />
+                      </div>
+                      <div className="flex justify-end pt-1">
+                        <button
+                          onClick={() => {
+                            setIsEditingVocabLogic(false);
+                            setLocalConsonants(vocabLogic.consonants || "");
+                            setLocalVowels(vocabLogic.vowels || "");
+                            setLocalTones(vocabLogic.tones || "");
+                          }}
+                          className="text-[10px] font-bold text-white/20 hover:text-white/40 uppercase tracking-tight"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+
           {/* Block 2: AI Key Row */}
           <div className="rounded-[24px] bg-white/5 p-2 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-white/10 backdrop-blur-3xl">
             <div className="flex flex-col gap-1">
