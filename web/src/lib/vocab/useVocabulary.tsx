@@ -16,6 +16,7 @@ import {
 import { onAuthStateChanged } from "firebase/auth";
 import { getFirebaseAuth, getFirebaseDb, isFirebaseConfigured } from "@/lib/firebase/client";
 import { fetchAiApiKey, fetchStudyGoals, listenVocabulary, saveAiApiKey, saveStudyGoals, type UserStudyGoals } from "@/lib/vocab/firestore";
+import { saveVocabToIndexedDB, getVocabFromIndexedDB } from "@/lib/vocab/indexeddb";
 import type { VocabularyEntry } from "@/lib/vocab/types";
 
 import { DEFAULT_STARTING_DATE } from "@/lib/constants";
@@ -42,12 +43,39 @@ export function useVocabulary() {
   });
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [photoURL, setPhotoURL] = useState<string | null>(null);
-  const [items, setItems] = useState<VocabularyEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<VocabularyEntry[]>(() => {
+    if (typeof window !== "undefined") {
+      const local = localStorage.getItem("cached_vocab_items");
+      return local ? JSON.parse(local) : [];
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && items.length === 0) {
+      getVocabFromIndexedDB().then(savedItems => {
+        if (savedItems.length > 0) {
+          setItems(savedItems);
+          setLoading(false);
+        }
+      });
+    }
+  }, []);
+  const [loading, setLoading] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("cached_vocab_items") ? false : true;
+    }
+    return true;
+  });
   const [fromCache, setFromCache] = useState(true);
   const [online, setOnline] = useState(true);
   const [vocabError, setVocabError] = useState<string | null>(null);
-  const [aiApiKey, setAiApiKey] = useState<string | null>(null);
+  const [aiApiKey, setAiApiKey] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("google_ai_studio_key");
+    }
+    return null;
+  });
   const [aiKeyLoading, setAiKeyLoading] = useState(false);
   const [userDailyGoal, setUserDailyGoal] = useState<number | null>(() => {
     if (typeof window !== "undefined") {
@@ -194,6 +222,10 @@ export function useVocabulary() {
         (next) => {
           console.log("Vocab data source:", next.fromCache ? "Cache" : "Server");
           setItems(next.items);
+          if (typeof window !== "undefined") {
+            localStorage.setItem("cached_vocab_items", JSON.stringify(next.items));
+            saveVocabToIndexedDB(next.items);
+          }
           setFromCache(next.fromCache);
           setLoading(false);
         },

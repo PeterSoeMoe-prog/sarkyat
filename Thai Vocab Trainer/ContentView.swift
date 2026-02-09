@@ -127,7 +127,6 @@ struct VocabularyListView: View {
                         if let index = items.firstIndex(where: { $0.id == item.id }) {
                             items[index].status = .drill
                             saveItems()
-                            playTapSound()
                         }
                     } label: {
                         Label("Drill", systemImage: "flame.fill")
@@ -139,14 +138,12 @@ struct VocabularyListView: View {
                         if let index = items.firstIndex(where: { $0.id == item.id }) {
                             items.remove(at: index)
                             saveItems()
-                            playTapSound()
                         }
                     } label: {
                         Label("Delete", systemImage: "trash.fill")
                     }
                     Button {
                         NotificationCenter.default.post(name: .editVocabularyEntry, object: item.id)
-                        playTapSound()
                     } label: {
                         Label("Edit", systemImage: "pencil")
                     }
@@ -292,6 +289,7 @@ struct ContentView: View {
     @State private var editingItem: VocabularyEntry? = nil
     @State private var counterItem: VocabularyEntry? = nil
     @State private var lastCounterSheetId: UUID? = nil
+    @State private var isSwappingCounterSheetItem: Bool = false
     @State private var showThaiPrimary = true
     @State private var sortByCountAsc = true
     // Show Daily Quiz from bottom cluster
@@ -458,6 +456,10 @@ struct ContentView: View {
                     }
                 }
                 .sheet(item: $counterItem, onDismiss: {
+                    if isSwappingCounterSheetItem {
+                        isSwappingCounterSheetItem = false
+                        return
+                    }
                     let dismissedId = lastCounterSheetId
                     counterItem = nil
                     if case .counter(let id) = router.sheet, id == dismissedId {
@@ -876,8 +878,6 @@ struct ContentView: View {
     }
 
     private func playTapSound() {
-        SoundManager.playSound(1104)
-        SoundManager.playVibration()
     }
 
     private func setupInitialState() {
@@ -939,6 +939,9 @@ struct ContentView: View {
             }
         case .counter(let id):
             if let item = items.first(where: { $0.id == id }) {
+                if counterItem != nil, let last = lastCounterSheetId, last != id {
+                    isSwappingCounterSheetItem = true
+                }
                 counterItem = item
                 lastCounterSheetId = id
             }

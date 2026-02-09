@@ -4,6 +4,7 @@ import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import { FirebaseBootstrap } from "@/components/FirebaseBootstrap";
 import { ThemeBootstrap } from "@/components/ThemeBootstrap";
 import { Navbar } from "@/components/Navbar";
+import { InstallPrompt } from "@/components/InstallPrompt";
 
 export const metadata: Metadata = {
   title: "Sar Kyat Pro",
@@ -27,6 +28,7 @@ export default function RootLayout({
         <ThemeBootstrap>
           <FirebaseBootstrap>
             <ServiceWorkerRegistrar />
+            <InstallPrompt />
             {children}
             <Navbar />
           </FirebaseBootstrap>

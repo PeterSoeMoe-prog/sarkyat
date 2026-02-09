@@ -47,7 +47,6 @@ struct VocabularyRowView: View {
             // Toggle eye icon
             Button(action: {
                 showBurmeseForID = (showBurmeseForID == item.id) ? nil : item.id
-                playTapSound()
             }) {
                 Image(systemName: showBurmeseForID == item.id ? "eye.slash.fill" : "eye.fill")
                     .font(.caption)

@@ -660,78 +660,79 @@ struct IntroView: View {
                         let availableWidth = UIScreen.main.bounds.width - (gridPadding * 2) - (gridSpacing * 2)
                         let badgeSize = max(96, min(128, availableWidth / 3))
                         let columns: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: gridSpacing, alignment: .top), count: 3)
-                        LazyVGrid(columns: columns, spacing: gridSpacing) {
-                            ForEach(tabCategories, id: \.self) { cat in
-                                Button {
-                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
-                                        selectedTabCategory = (selectedTabCategory == cat) ? nil : cat
-                                    }
-                                } label: {
-                                    let stats = tabCategoryStats[cat, default: (ready: 0, total: tabCategoryCounts[cat, default: 0])]
-                                    let ready = stats.ready
-                                    let total = stats.total
-                                    let pct = total > 0 ? Int(round(Double(ready) / Double(total) * 100)) : 0
-                                    let isSelected = selectedTabCategory == cat
-                                    let palette: [[Color]] = [
-                                        [.blue, .cyan],
-                                        [.orange, .yellow],
-                                        [.pink, .purple],
-                                        [.green, .mint]
-                                    ]
-                                    let ringColors = palette[abs(cat.hashValue) % palette.count]
-
-                                    ZStack {
-                                        Circle()
-                                            .fill(.ultraThinMaterial)
-                                            .overlay(
-                                                Circle()
-                                                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
-                                            )
-
-                                        Circle()
-                                            .stroke(Color.primary.opacity(0.10), lineWidth: 6)
-
-                                        Circle()
-                                            .trim(from: 0, to: CGFloat(pct) / 100.0)
-                                            .stroke(
-                                                AngularGradient(gradient: Gradient(colors: ringColors + ringColors), center: .center),
-                                                style: StrokeStyle(lineWidth: (isSelected ? 7 : 6), lineCap: .round)
-                                            )
-                                            .rotationEffect(.degrees(-90))
-                                            .shadow(color: ringColors.first?.opacity(pct == 100 ? 0.35 : 0.20) ?? Color.white.opacity(0.2), radius: 10, x: 0, y: 0)
-                                            .shadow(color: ringColors.last?.opacity(pct == 100 ? 0.25 : 0.14) ?? Color.white.opacity(0.2), radius: 14, x: 0, y: 0)
-
-                                        VStack(spacing: 6) {
-                                            Image(systemName: "crown.fill")
-                                                .font(.system(size: 18, weight: .bold))
-                                                .foregroundColor(pct == 100 ? .yellow : .secondary)
-                                                .shadow(color: (pct == 100 ? Color.yellow.opacity(0.55) : Color.clear), radius: 10, x: 0, y: 0)
-
-                                            Text(cat)
-                                                .font(.system(size: 15, weight: .bold))
-                                                .foregroundColor(.primary)
-                                                .lineLimit(1)
-                                                .minimumScaleFactor(0.7)
-
-                                            Text("\(ready)/\(total)")
-                                                .font(.system(size: 13, weight: .semibold))
-                                                .foregroundColor(.primary.opacity(0.85))
-
-                                            Text("\(pct)% Done")
-                                                .font(.system(size: 11, weight: .regular))
-                                                .foregroundColor(.secondary)
+                        if selectedTabCategory == nil {
+                            LazyVGrid(columns: columns, spacing: gridSpacing) {
+                                ForEach(tabCategories, id: \.self) { cat in
+                                    Button {
+                                        withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+                                            selectedTabCategory = cat
                                         }
-                                        .padding(.top, 2)
+                                    } label: {
+                                        let stats = tabCategoryStats[cat, default: (ready: 0, total: tabCategoryCounts[cat, default: 0])]
+                                        let ready = stats.ready
+                                        let total = stats.total
+                                        let pct = total > 0 ? Int(round(Double(ready) / Double(total) * 100)) : 0
+                                        let isSelected = selectedTabCategory == cat
+                                        let palette: [[Color]] = [
+                                            [.blue, .cyan],
+                                            [.orange, .yellow],
+                                            [.pink, .purple],
+                                            [.green, .mint]
+                                        ]
+                                        let ringColors = palette[abs(cat.hashValue) % palette.count]
+
+                                        ZStack {
+                                            Circle()
+                                                .fill(.ultraThinMaterial)
+                                                .overlay(
+                                                    Circle()
+                                                        .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+                                                )
+
+                                            Circle()
+                                                .stroke(Color.primary.opacity(0.10), lineWidth: 6)
+
+                                            Circle()
+                                                .trim(from: 0, to: CGFloat(pct) / 100.0)
+                                                .stroke(
+                                                    AngularGradient(gradient: Gradient(colors: ringColors + ringColors), center: .center),
+                                                    style: StrokeStyle(lineWidth: (isSelected ? 7 : 6), lineCap: .round)
+                                                )
+                                                .rotationEffect(.degrees(-90))
+                                                .shadow(color: ringColors.first?.opacity(pct == 100 ? 0.35 : 0.20) ?? Color.white.opacity(0.2), radius: 10, x: 0, y: 0)
+                                                .shadow(color: ringColors.last?.opacity(pct == 100 ? 0.25 : 0.14) ?? Color.white.opacity(0.2), radius: 14, x: 0, y: 0)
+
+                                            VStack(spacing: 6) {
+                                                Image(systemName: "crown.fill")
+                                                    .font(.system(size: 18, weight: .bold))
+                                                    .foregroundColor(pct == 100 ? .yellow : .secondary)
+                                                    .shadow(color: (pct == 100 ? Color.yellow.opacity(0.55) : Color.clear), radius: 10, x: 0, y: 0)
+
+                                                Text(cat)
+                                                    .font(.system(size: 15, weight: .bold))
+                                                    .foregroundColor(.primary)
+                                                    .lineLimit(1)
+                                                    .minimumScaleFactor(0.7)
+
+                                                Text("\(ready)/\(total)")
+                                                    .font(.system(size: 13, weight: .semibold))
+                                                    .foregroundColor(.primary.opacity(0.85))
+
+                                                Text("\(pct)% Done")
+                                                    .font(.system(size: 11, weight: .regular))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            .padding(.top, 2)
+                                        }
+                                        .frame(width: badgeSize, height: badgeSize)
+                                        .scaleEffect(isSelected ? 1.05 : 1.0)
                                     }
-                                    .frame(width: badgeSize, height: badgeSize)
-                                    .scaleEffect(isSelected ? 1.05 : 1.0)
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
+                            .padding(.horizontal, gridPadding)
+                            .padding(.bottom, 10)
                         }
-                        .padding(.horizontal, gridPadding)
-                        .padding(.bottom, 10)
-                        .frame(maxHeight: selectedTabCategory == nil ? .infinity : 260)
 
                         if let selected = selectedTabCategory {
                             VStack(spacing: 10) {
@@ -1070,7 +1071,6 @@ struct IntroView: View {
         SoundManager.playVibration()
     }
     private func playConfirmFeedback() {
-        SoundManager.playSound(1104) // Key press click
         SoundManager.playVibration()
     }
 
@@ -1109,8 +1109,6 @@ struct IntroView: View {
     }
 
     private func playTapSound() {
-        SoundManager.playSound(1104)
-        SoundManager.playVibration()
     }
 
     private struct StatCard: View {

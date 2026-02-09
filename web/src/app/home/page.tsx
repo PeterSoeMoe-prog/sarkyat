@@ -29,52 +29,127 @@ function formatLongDate(d: Date) {
 }
 
 function ProgressRing({
-  progress,
+  readyPct,
+  dailyPct,
   size,
   stroke,
+  daysDifference,
 }: {
-  progress: number;
+  readyPct: number;
+  dailyPct: number;
   size: number;
   stroke: number;
+  daysDifference: number;
 }) {
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const dash = (progress / 100) * circumference;
+  const [key, setKey] = useState(0);
+  const outerRadius = (size - stroke) / 2;
+  const outerCircumference = 2 * Math.PI * outerRadius;
+  const outerDash = (readyPct / 100) * outerCircumference;
+
+  const innerStroke = stroke * 0.7;
+  const innerGap = 4;
+  const innerRadius = outerRadius - stroke / 2 - innerGap - innerStroke / 2;
+  const innerCircumference = 2 * Math.PI * innerRadius;
+  const innerDash = (Math.min(dailyPct, 100) / 100) * innerCircumference;
+
+  const outerDuration = 3.125;
+  const text1Delay = outerDuration * 0.9;
+  const text1Duration = 3;
+  const innerDelay = text1Delay + text1Duration;
+  const innerDuration = 3.05;
+  const text2Delay = innerDelay + (innerDuration * 0.9);
+  const text2Duration = 3;
+
+  const absoluteDays = Math.abs(daysDifference);
+  
+  const statusLines = daysDifference > 0 
+    ? [
+        <p key="0" className="text-[10px] font-medium text-white/60 uppercase tracking-tighter leading-none">You've Done</p>,
+        <p key="1" className="text-[14px] font-black text-[#FFD700] uppercase tracking-tight leading-none my-1.5">{absoluteDays} Days Than</p>,
+        <p key="2" className="text-[10px] font-medium text-white/60 uppercase tracking-tighter leading-none">Daily Target!</p>
+      ]
+    : daysDifference < 0 
+      ? [
+          <p key="0" className="text-[10px] font-medium text-white/60 uppercase tracking-tighter leading-none">You've Missed</p>,
+          <p key="1" className="text-[14px] font-black text-[#FFD700] uppercase tracking-tight leading-none my-1.5">{absoluteDays} Days To</p>,
+          <p key="2" className="text-[10px] font-medium text-white/60 uppercase tracking-tighter leading-none">Hit Target!</p>
+        ]
+      : [
+          <p key="0" className="text-[10px] font-medium text-white/60 uppercase tracking-tighter leading-none">You're Exactly</p>,
+          <p key="1" className="text-[14px] font-black text-[#FFD700] uppercase tracking-tight leading-none my-1.5">On Daily</p>,
+          <p key="2" className="text-[10px] font-medium text-white/60 uppercase tracking-tighter leading-none">Target!</p>
+        ];
 
   return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="block">
+    <div 
+      className="relative cursor-pointer group active:scale-95 transition-transform" 
+      style={{ width: size, height: size }}
+      onClick={() => setKey(prev => prev + 1)}
+    >
+      <svg width={size} height={size} className="block overflow-visible">
+        {/* Outer Ring Background */}
         <circle
           cx={size / 2}
           cy={size / 2}
-          r={radius}
+          r={outerRadius}
           fill="none"
-          stroke="rgba(255,255,255,0.05)"
+          stroke="rgba(255,255,255,0.03)"
           strokeWidth={stroke}
         />
+        {/* Outer Ring (Ready %) */}
         <motion.circle
+          key={`outer-${key}`}
           cx={size / 2}
           cy={size / 2}
-          r={radius}
+          r={outerRadius}
           fill="none"
           stroke="url(#progress-gradient)"
           strokeWidth={stroke}
           strokeLinecap="round"
-          initial={{ strokeDasharray: `0 ${circumference}`, rotate: -90 }}
+          initial={{ strokeDasharray: `0 ${outerCircumference}`, rotate: -90 }}
           animate={{ 
-            strokeDasharray: [`0 ${circumference}`, `${dash} ${circumference - dash}`],
+            strokeDasharray: [`0 ${outerCircumference}`, `${outerDash} ${outerCircumference - outerDash}`],
             rotate: [-90, 270] 
           }}
           transition={{ 
-            duration: 2.5, 
+            duration: outerDuration, 
             ease: "easeOut",
-            // 1 minute loop animation
-            repeat: Infinity,
-            repeatDelay: 60,
-            repeatType: "loop"
           }}
           style={{ originX: "50%", originY: "50%" }}
         />
+
+        {/* Inner Ring Background */}
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={innerRadius}
+          fill="none"
+          stroke="rgba(255,255,255,0.03)"
+          strokeWidth={innerStroke}
+        />
+        {/* Inner Ring (Daily Progress %) */}
+        <motion.circle
+          key={`inner-${key}`}
+          cx={size / 2}
+          cy={size / 2}
+          r={innerRadius}
+          fill="none"
+          stroke="#49D2FF"
+          strokeWidth={innerStroke}
+          strokeLinecap="round"
+          initial={{ strokeDasharray: `0 ${innerCircumference}`, rotate: -90 }}
+          animate={{ 
+            strokeDasharray: [`0 ${innerCircumference}`, `${innerDash} ${innerCircumference - innerDash}`],
+            rotate: [-90, 270] 
+          }}
+          transition={{ 
+            duration: innerDuration, 
+            delay: innerDelay,
+            ease: "easeOut",
+          }}
+          style={{ originX: "50%", originY: "50%" }}
+        />
+
         <defs>
           <linearGradient id="progress-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#49D2FF" />
@@ -85,7 +160,60 @@ function ProgressRing({
           </linearGradient>
         </defs>
       </svg>
-      <div className="absolute inset-0 rounded-full bg-black/20" />
+      
+      {/* Centered Texts */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+        {/* Text 1: Ready Pct */}
+        <motion.div 
+          key={`text1-${key}`}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ 
+            opacity: [0, 1, 1, 0],
+            scale: [0.9, 1, 1, 0.95]
+          }}
+          transition={{
+            duration: text1Duration + 0.5,
+            times: [0, 0.1, 0.9, 1],
+            delay: text1Delay,
+            ease: "easeInOut"
+          }}
+          className="absolute inset-0 flex items-center justify-center text-center px-4"
+        >
+          <div>
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-tighter leading-tight">
+              You've Done
+            </p>
+            <p className="text-[16px] font-black text-white/80 tracking-tighter leading-none my-0.5 shadow-sm">
+              {readyPct}%
+            </p>
+            <p className="text-[9px] font-bold text-white/40 uppercase tracking-tighter leading-tight">
+              of all Vocabs!
+            </p>
+          </div>
+        </motion.div>
+
+        {/* Text 2: Daily Target Status (English Only) */}
+        <motion.div 
+          key={`text2-${key}`}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ 
+            opacity: [0, 1],
+            scale: [0.9, 1]
+          }}
+          transition={{
+            duration: 0.5,
+            delay: text2Delay,
+            ease: "easeOut"
+          }}
+          className="absolute inset-0 flex items-center justify-center text-center px-4"
+        >
+          <div className="flex flex-col items-center justify-center">
+            {statusLines}
+          </div>
+        </motion.div>
+      </div>
+
+      <div className="absolute inset-[15%] rounded-full bg-black/40 backdrop-blur-md group-hover:bg-black/50 transition-colors z-10 shadow-inner" />
     </div>
   );
 }
@@ -105,7 +233,22 @@ export default function HomePage() {
   } = useVocabulary();
   const router = useRouter();
   const [hasMounted, setHasMounted] = useState(false);
+  const [failedIdsCount, setFailedIdsCount] = useState(0);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("failed_quiz_ids");
+    if (stored) {
+      try {
+        const ids = JSON.parse(stored);
+        setFailedIdsCount(Array.isArray(ids) ? ids.length : 0);
+      } catch (e) {
+        console.error("Failed to parse failed_quiz_ids", e);
+      }
+    }
+  }, []);
   const isAuthed = !!uid;
+
+  const [activeCardIndex, setActiveCardIndex] = useState(0);
 
   const currentTargetDate = useMemo(() => {
     if (!backfillingState?.currentTargetDate) return new Date();
@@ -113,6 +256,26 @@ export default function HomePage() {
   }, [backfillingState]);
 
   const dateText = useMemo(() => formatLongDate(currentTargetDate), [currentTargetDate]);
+
+  const daysDifference = useMemo(() => {
+    if (!xDate || !rule) return 0;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const start = new Date(xDate);
+    start.setHours(0, 0, 0, 0);
+    
+    const diffTime = today.getTime() - start.getTime();
+    const currentDayIndex = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    // Target items for today = (currentDayIndex + 1) * rule
+    // Current total items = totalVocabCounts
+    const targetItems = (currentDayIndex + 1) * rule;
+    const diffItems = totalVocabCounts - targetItems;
+    
+    return Math.round(diffItems / rule);
+  }, [totalVocabCounts, rule, xDate]);
 
   const burmeseStatus = useMemo(() => {
     if (!backfillingState || !rule) return null;
@@ -191,7 +354,8 @@ export default function HomePage() {
   }
 
   const allTotal = items.length;
-  const readyPct = backfillingState && userDailyGoal ? Math.round((backfillingState.currentDayProgress / userDailyGoal) * 100) : 0;
+  const readyPct = allTotal > 0 ? Math.round((statusCounts.ready / allTotal) * 100) : 0;
+  const dailyPct = rule > 0 ? Math.round((backfillingState?.currentDayProgress || 0) / rule * 100) : 0;
   const hitsFor = backfillingState?.currentDayProgress ?? 0;
 
   const legend = {
@@ -213,121 +377,203 @@ export default function HomePage() {
           }}
         >
           <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+18px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
-            <div className="text-center flex flex-col items-center justify-center">
-              <div className="relative inline-flex items-center justify-center">
-                <div className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">
-                  Sar Kyat Pro
+            <div className="relative w-full flex items-center justify-center">
+              <div className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">
+                Sar Kyat Pro
+              </div>
+              <div className="absolute right-0 flex items-center gap-3">
+                <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#2CE08B]/10 border border-[#2CE08B]/20">
+                  <div className="h-1.5 w-1.5 rounded-full bg-[#2CE08B] animate-pulse shadow-[0_0_8px_#2CE08B]" />
+                  <span className="text-[10px] font-black text-[#2CE08B] uppercase tracking-widest">LIVE</span>
                 </div>
-                <div className="absolute left-full top-0 ml-2">
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#2CE08B]/10 border border-[#2CE08B]/20">
-                    <div className="h-1.5 w-1.5 rounded-full bg-[#2CE08B] animate-pulse shadow-[0_0_8px_#2CE08B]" />
-                    <span className="text-[10px] font-black text-[#2CE08B] uppercase tracking-widest">LIVE</span>
-                  </div>
-                </div>
+                {failedIdsCount > 0 && (
+                  <motion.button
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => router.push("/failed-quiz")}
+                    className="relative p-1.5 group"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="text-white/80 group-hover:text-white transition-colors"
+                    >
+                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                    </svg>
+                    <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-[#FF4D6D] text-[10px] font-black flex items-center justify-center shadow-[0_0_12px_rgba(255,77,109,0.6)] border-2 border-[#0A0B0F]">
+                      {failedIdsCount}
+                    </span>
+                  </motion.button>
+                )}
               </div>
             </div>
 
-            <div className="mt-4 relative rounded-3xl border border-white/10 bg-white/5 px-5 py-3 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
-              <div className="absolute top-3 left-0 right-0 flex items-center justify-center gap-2 pointer-events-none">
-                <div className="h-[6px] w-[6px] rounded-full bg-white/30" />
-                <div className="h-[6px] w-[6px] rounded-full bg-white/70" />
-              </div>
-              <div className="text-center pt-1.5">
-                <div className="relative inline-flex items-start justify-center">
-                  <motion.div
-                    className="text-[52px] sm:text-[64px] font-bold leading-none tracking-[-0.03em] relative inline-block"
-                    style={{ 
-                      filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.25))",
-                      WebkitTextStroke: "1px rgba(255,255,255,0.15)",
-                      background: "linear-gradient(110deg, #49D2FF 0%, #B36BFF 25%, #ffffff 45%, #ffffff 55%, #FF4D6D 75%, #FFB020 100%)",
-                      backgroundSize: "200% 100%",
-                      WebkitBackgroundClip: "text",
-                      backgroundClip: "text",
-                      color: "transparent",
-                    }}
-                    animate={{
-                      backgroundPosition: ["200% 0%", "-200% 0%"],
-                      filter: [
-                        "drop-shadow(0 18px 45px rgba(255,80,150,0.25))",
-                        "drop-shadow(0 18px 60px rgba(255,80,150,0.45))",
-                        "drop-shadow(0 18px 45px rgba(255,80,150,0.25))"
-                      ],
-                    }}
-                    transition={{
-                      backgroundPosition: {
-                        duration: 5,
-                        repeat: Infinity,
-                        ease: "linear",
-                        repeatDelay: 2
-                      },
-                      filter: {
-                        duration: 3,
-                        repeat: Infinity,
-                        ease: "easeInOut"
-                      }
-                    }}
-                  >
-                    {loading || !isAuthed ? "—" : hitsFor.toLocaleString()}
-                  </motion.div>
-                  <div className="absolute left-full top-2 ml-1 whitespace-nowrap text-[14px] sm:text-[16px] font-bold text-white/40 uppercase tracking-widest">
-                    Hits for
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-col items-center">
-                  <div className="flex justify-center items-center gap-1.5">
-                    <div className="inline-flex items-center rounded-full border border-white/15 bg-black/20 px-4 py-1.5 text-[16px] font-semibold text-white/90 shadow-[0_12px_40px_rgba(0,0,0,0.30)] relative">
-                      {dateText}
-                      {formattedXDate && (
-                        <span className="absolute -top-1 -right-1 text-[9px] font-bold text-white/30 leading-none transform translate-x-full -translate-y-1/4">
-                          {formattedXDate}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {burmeseStatus && (
-                    <div className="mt-2 text-[10px] font-bold text-white/30 tracking-tight">
-                      {burmeseStatus}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-2 text-[12px] font-semibold text-white/35">
-                  {loading ? "Loading…" : !isAuthed ? "Sign in required" : ""}
-                </div>
+            {/* Card System */}
+            <div className="mt-4 relative rounded-3xl border border-white/10 bg-white/5 p-1 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
+              <div className="absolute top-3 left-0 right-0 flex items-center justify-center gap-2 z-20 pointer-events-none">
+                <div className={`h-[6px] w-[6px] rounded-full transition-all duration-300 ${activeCardIndex === 0 ? 'bg-white/70 w-3' : 'bg-white/30'}`} />
+                <div className={`h-[6px] w-[6px] rounded-full transition-all duration-300 ${activeCardIndex === 1 ? 'bg-white/70 w-3' : 'bg-white/30'}`} />
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <motion.button
-                  type="button"
-                  whileTap={{ scale: 0.98 }}
-                  whileHover={{ scale: 1.01 }}
-                  onClick={() => router.push("/")}
-                  className={
-                    btnBase +
-                    " bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF]"
-                  }
+              <div className="relative overflow-hidden">
+                <div 
+                  className="flex transition-transform duration-500 ease-out"
+                  style={{ transform: `translateX(-${activeCardIndex * 100}%)` }}
+                  onTouchStart={(e) => {
+                    const touch = e.touches[0];
+                    const startX = touch.clientX;
+                    const handleTouchEnd = (ee: TouchEvent) => {
+                      const endX = ee.changedTouches[0].clientX;
+                      if (startX - endX > 50) setActiveCardIndex(1);
+                      if (endX - startX > 50) setActiveCardIndex(0);
+                      document.removeEventListener("touchend", handleTouchEnd);
+                    };
+                    document.addEventListener("touchend", handleTouchEnd);
+                  }}
                 >
-                  Daily List
-                </motion.button>
-                <motion.button
-                  type="button"
-                  whileTap={{ scale: 0.98 }}
-                  whileHover={{ scale: 1.01 }}
-                  onClick={() => router.push("/counter")}
-                  className={
-                    btnBase +
-                    " bg-gradient-to-r from-[#FF4D94] via-[#FF4D6D] to-[#FF7A00]"
-                  }
-                >
-                  Start Study
-                </motion.button>
+                  {/* Card 1: Default Stats View */}
+                  <div className="w-full shrink-0 px-5 py-3">
+                    <div className="text-center pt-1.5">
+                      <div className="relative inline-flex items-start justify-center">
+                        <motion.div
+                          className="text-[52px] sm:text-[64px] font-bold leading-none tracking-[-0.03em] relative inline-block"
+                          style={{ 
+                            filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.25))",
+                            WebkitTextStroke: "1px rgba(255,255,255,0.15)",
+                            background: "linear-gradient(110deg, #49D2FF 0%, #B36BFF 25%, #ffffff 45%, #ffffff 55%, #FF4D6D 75%, #FFB020 100%)",
+                            backgroundSize: "200% 100%",
+                            WebkitBackgroundClip: "text",
+                            backgroundClip: "text",
+                            color: "transparent",
+                          }}
+                          animate={{
+                            backgroundPosition: ["200% 0%", "-200% 0%"],
+                          }}
+                          transition={{
+                            duration: 5,
+                            repeat: Infinity,
+                            ease: "linear",
+                            repeatDelay: 2
+                          }}
+                        >
+                          {loading || !isAuthed ? "—" : hitsFor.toLocaleString()}
+                        </motion.div>
+                        <div className="absolute left-full top-2 ml-1 whitespace-nowrap text-[14px] sm:text-[16px] font-bold text-white/40 uppercase tracking-widest">
+                          Hits for
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-col items-center">
+                        <div className="flex justify-center items-center gap-1.5">
+                          <div className="inline-flex items-center rounded-full border border-white/15 bg-black/20 px-4 py-1.5 text-[16px] font-semibold text-white/90 shadow-[0_12px_40px_rgba(0,0,0,0.30)] relative">
+                            {dateText}
+                            {formattedXDate && (
+                              <span className="absolute -top-1 -right-1 text-[9px] font-bold text-white/30 leading-none transform translate-x-full -translate-y-1/4">
+                                {formattedXDate}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        <motion.button
+                          type="button"
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => router.push("/")}
+                          className={btnBase + " bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] !py-3 !px-2 !text-[13px] shadow-none"}
+                        >
+                          Daily List
+                        </motion.button>
+                        <motion.button
+                          type="button"
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => router.push("/counter")}
+                          className={btnBase + " bg-gradient-to-r from-[#FF4D94] via-[#FF4D6D] to-[#FF7A00] !py-3 !px-2 !text-[13px] shadow-none"}
+                        >
+                          Start Study
+                        </motion.button>
+                        <motion.button
+                          type="button"
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => router.push("/quiz")}
+                          className={btnBase + " bg-gradient-to-r from-[#60A5FA] via-[#4FD2FF] to-[#2CE08B] !py-3 !px-2 !text-[13px] shadow-none"}
+                        >
+                          Daily Quiz
+                        </motion.button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card 2: Session Picker (iOS Style) */}
+                  <div className="w-full shrink-0 px-5 py-3">
+                    <div className="pt-2">
+                      {/* Tabs Header */}
+                      <div className="flex bg-white/5 rounded-xl p-1 mb-6 border border-white/5">
+                        {["Minutes", "Hits", "Vocabs"].map((tab) => (
+                          <div key={tab} className={`flex-1 text-center py-2 text-[13px] font-bold rounded-lg transition-all ${tab === "Hits" ? "bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] text-white" : "text-white/40"}`}>
+                            {tab}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Selectors Placeholder */}
+                      <div className="flex justify-around items-center mb-8 h-24">
+                        <div className="text-center">
+                          <div className="text-white/20 text-sm font-bold mb-1">60</div>
+                          <div className="bg-white/5 rounded-xl px-4 py-2 text-[20px] font-black text-white/40 border border-white/5">60</div>
+                          <div className="text-white/20 text-sm font-bold mt-1">40</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-white/20 text-sm font-bold mb-1">7,000</div>
+                          <div className="bg-white/5 rounded-xl px-6 py-2 text-[24px] font-black text-white border border-white/10 shadow-[0_0_20px_rgba(255,255,255,0.05)]">5,000</div>
+                          <div className="text-white/20 text-sm font-bold mt-1">3,000</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-white/20 text-sm font-bold mb-1">15</div>
+                          <div className="bg-white/5 rounded-xl px-4 py-2 text-[20px] font-black text-white/40 border border-white/5">10</div>
+                          <div className="text-white/20 text-sm font-bold mt-1">5</div>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <motion.button
+                          whileTap={{ scale: 0.98 }}
+                          className="py-4 rounded-2xl bg-white/5 border border-white/10 text-[16px] font-black text-white/60"
+                        >
+                          Start Session
+                        </motion.button>
+                        <motion.button
+                          whileTap={{ scale: 0.98 }}
+                          className="py-4 rounded-2xl bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] text-[16px] font-black text-white shadow-[0_0_20px_rgba(73,210,255,0.4)] relative overflow-hidden group"
+                        >
+                          <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          Resume
+                        </motion.button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
             <div className="mt-8 grid grid-cols-[1fr_auto] items-center gap-6">
               <div className="flex items-center justify-center">
-                <ProgressRing progress={readyPct} size={160} stroke={22} />
+                <ProgressRing 
+                  readyPct={readyPct} 
+                  dailyPct={dailyPct} 
+                  size={160} 
+                  stroke={18} 
+                  daysDifference={daysDifference}
+                />
               </div>
 
               <div className="min-w-[156px]">

@@ -287,7 +287,6 @@ struct VocabularyListView: View {
             view.swipeActions(edge: .leading, allowsFullSwipe: false) {
                 Button {
                     UIPasteboard.general.string = showThaiPrimary ? item.thai : (item.burmese ?? "")
-                    playTapSound()
                 } label: {
                     Label("Copy", systemImage: "doc.on.doc")
                 }
@@ -307,14 +306,12 @@ struct VocabularyListView: View {
         // Remove from the canonical items array
         items.removeAll { ids.contains($0.id) }
         scheduleSave()
-        playTapSound()
     }
 
     private func deleteItem(id: UUID) {
         if let index = items.firstIndex(where: { $0.id == id }) {
             items.remove(at: index)
             scheduleSave()
-            playTapSound()
         }
     }
 
@@ -322,7 +319,6 @@ struct VocabularyListView: View {
         if let index = items.firstIndex(where: { $0.id == id }) {
             items[index].status = newStatus
             scheduleSave()
-            playTapSound()
         }
     }
     

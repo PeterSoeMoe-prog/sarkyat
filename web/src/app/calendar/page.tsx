@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { X } from "lucide-react";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -102,13 +103,51 @@ function CalendarMonth({
 }
 
 export default function CalendarPage() {
-  const { xDate: cloudXDate, goalsLoading, items, userDailyGoal, backfillingState } = useVocabulary();
+  const { xDate: cloudXDate, goalsLoading, items, userDailyGoal, backfillingState, rule } = useVocabulary();
   const startingDate = cloudXDate || DEFAULT_STARTING_DATE;
   const [hasMounted, setHasMounted] = useState(false);
   const earliestSuccessRef = useRef<HTMLButtonElement | null>(null);
   
   // Date Detail State
   const [selectedDate, setSelectedDate] = useState<{ date: string; count: number; isTarget: boolean } | null>(null);
+  const [showStatusPopup, setShowStatusPopup] = useState(true);
+
+  // Auto-hide popup after 10s
+  useEffect(() => {
+    if (showStatusPopup) {
+      const timer = setTimeout(() => {
+        setShowStatusPopup(false);
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [showStatusPopup]);
+
+  const statusPopupText = useMemo(() => {
+    if (!backfillingState || !rule) return "";
+    
+    const today = new Date();
+    const todayText = today.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    
+    const ruleVal = rule || 100;
+    const startIso = cloudXDate || DEFAULT_STARTING_DATE;
+    const start = new Date(startIso);
+    start.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    
+    const diffTime = today.getTime() - start.getTime();
+    const currentDayIndex = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    const totalHits = items.reduce((sum, it) => sum + (it.count || 0), 0);
+    const targetItems = (currentDayIndex + 1) * ruleVal;
+    const diffItems = totalHits - targetItems;
+    const diffDays = Math.abs(Math.round(diffItems / ruleVal));
+    
+    if (diffItems >= 0) {
+      return `ယနေ့ (${todayText}) အထိ ${diffDays} ရက် ကျော်လွန်နေပါတယ်။`;
+    } else {
+      return `ယနေ့ (${todayText}) အထိ ${diffDays} ရက် လိုအပ်နေပါတယ်။`;
+    }
+  }, [backfillingState, rule, cloudXDate, items]);
 
   // Group items by date (normalized to midnight)
   const historyData = useMemo(() => {
@@ -232,6 +271,48 @@ export default function CalendarPage() {
             </div>
           </div>
         </div>
+
+        {/* Large Burmese Status Popup */}
+        <AnimatePresence>
+          {showStatusPopup && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.5 } }}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[70] w-[90vw] max-w-md p-8 rounded-[32px] bg-gradient-to-br from-[#FF4D6D]/20 via-[#B36BFF]/20 to-[#49D2FF]/20 border border-white/20 backdrop-blur-2xl shadow-[0_50px_100px_rgba(0,0,0,0.5)] flex flex-col items-center gap-6 text-center"
+            >
+              <div className="absolute inset-0 bg-white/5 opacity-50 pointer-events-none" />
+              
+              <div className="flex items-center justify-between w-full relative z-10">
+                <h2 className="text-[14px] font-black text-[#2CE08B] uppercase tracking-[0.2em]">Study Status</h2>
+                <button 
+                  onClick={() => setShowStatusPopup(false)} 
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 active:bg-white/30 transition-colors"
+                >
+                  <X className="w-5 h-5 text-white/60" />
+                </button>
+              </div>
+
+              <div className="relative z-10 py-4">
+                <p className="text-[24px] font-bold text-white leading-tight tracking-tight">
+                  {statusPopupText}
+                </p>
+              </div>
+
+              <div className="w-full relative z-10">
+                <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden border border-white/5">
+                  <motion.div 
+                    className="h-full bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF]" 
+                    initial={{ width: "100%" }}
+                    animate={{ width: "0%" }}
+                    transition={{ duration: 10, ease: "linear" }}
+                  />
+                </div>
+                <p className="mt-3 text-[10px] font-bold text-white/30 uppercase tracking-widest">Auto-closing in 10s</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Date Detail Notification */}
         <AnimatePresence>

@@ -1,21 +1,35 @@
 "use client";
 
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, Suspense, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import ErrorBoundary from "@/components/ErrorBoundary";
+const { FixedSizeList: List } = require("react-window");
+const AutoSizer = require("react-virtualized-auto-sizer").default || require("react-virtualized-auto-sizer");
 
 type SortOption = "Recent" | "Count";
 
-export default function VocabPage() {
+function VocabContent() {
   const { items, loading } = useVocabulary();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("Recent");
   const [sortOrder, setSortByOrder] = useState<"asc" | "desc">("desc");
   const [primaryLanguage, setPrimaryLanguage] = useState<"Thai" | "Myanmar">("Thai");
 
+  const categoryFilter = searchParams.get("category");
+
   const filteredAndSortedItems = useMemo(() => {
     let result = [...items];
+
+    // Category filter from URL
+    if (categoryFilter) {
+      result = result.filter(
+        (it) => (it.category?.trim() || "General") === categoryFilter
+      );
+    }
 
     // Search filter
     if (searchQuery.trim()) {
@@ -39,9 +53,9 @@ export default function VocabPage() {
     }
 
     return result;
-  }, [items, searchQuery, sortBy, sortOrder]);
+  }, [items, searchQuery, sortBy, sortOrder, categoryFilter]);
 
-  if (loading) {
+  if (loading && items.length === 0) {
     return (
       <div className="min-h-screen bg-[#0A0B0F] flex items-center justify-center">
         <div className="h-8 w-8 border-2 border-[#B36BFF] border-t-transparent rounded-full animate-spin" />
@@ -49,6 +63,155 @@ export default function VocabPage() {
     );
   }
 
+  const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
+    const it = filteredAndSortedItems[index];
+    return (
+      <div style={{ ...style, paddingBottom: "8px" }}>
+        <motion.div
+          layout
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="group relative rounded-2xl bg-white/5 border border-white/5 p-4 hover:bg-white/[0.08] transition-all overflow-hidden h-[84px]"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="text-[17px] font-bold text-white tracking-tight mb-0.5 truncate">
+                {primaryLanguage === "Thai" ? it.thai : (it.burmese || "—")}
+              </div>
+              <div className="text-[13px] font-medium text-white/40 truncate">
+                {primaryLanguage === "Thai" ? (it.burmese || "—") : it.thai}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="px-3 py-1.5 rounded-xl bg-black/20 border border-white/5 min-w-[48px] text-center">
+                <span className="text-[14px] font-black text-[#2CE08B] tabular-nums">
+                  {it.count || 0}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out pointer-events-none" />
+        </motion.div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)] flex flex-col h-screen">
+      <header className="mb-6 shrink-0">
+        {/* Active Category Chip */}
+        {categoryFilter && (
+          <div className="flex items-center justify-between bg-[#B36BFF]/10 border border-[#B36BFF]/20 rounded-2xl p-4 mb-4">
+            <div className="flex items-center gap-3">
+              <span className="text-xl">👑</span>
+              <div>
+                <p className="text-[10px] font-black text-[#B36BFF] uppercase tracking-widest leading-none mb-1">Category</p>
+                <h2 className="text-[18px] font-bold text-white tracking-tight leading-none">{categoryFilter}</h2>
+              </div>
+            </div>
+            <button 
+              onClick={() => router.push("/vocab")}
+              className="h-8 w-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-white/40 transition-all"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Search and Filter */}
+        <div className="space-y-3 pt-4">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search vocabulary..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-3.5 text-[15px] focus:outline-none focus:border-[#B36BFF]/50 transition-all placeholder:text-white/20"
+            />
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20">
+              🔍
+            </div>
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar items-center justify-between">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSortBy("Recent")}
+                className={`whitespace-nowrap px-4 py-2 rounded-full text-[12px] font-bold transition-all border ${
+                  sortBy === "Recent"
+                    ? "bg-[#B36BFF] border-[#B36BFF] text-white shadow-[0_0_15px_rgba(179,107,255,0.3)]"
+                    : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
+                }`}
+              >
+                Recent
+              </button>
+              <button
+                onClick={() => {
+                  if (sortBy === "Count") {
+                    setSortByOrder(sortOrder === "asc" ? "desc" : "asc");
+                  } else {
+                    setSortBy("Count");
+                    setSortByOrder("desc"); // Default to desc on first tap
+                  }
+                }}
+                className={`whitespace-nowrap px-4 py-2 rounded-full text-[12px] font-bold transition-all border flex items-center gap-1 ${
+                  sortBy === "Count"
+                    ? "bg-[#B36BFF] border-[#B36BFF] text-white shadow-[0_0_15px_rgba(179,107,255,0.3)]"
+                    : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
+                }`}
+              >
+                Count ({sortBy === "Count" ? (sortOrder === "asc" ? "A-Z" : "Z-A") : "A-Z"})
+              </button>
+            </div>
+
+            {/* Language Toggle */}
+            <div className="flex bg-white/5 rounded-full p-1 border border-white/10 ml-4">
+              {(["Thai", "Myanmar"] as const).map((lang) => (
+                <button
+                  key={lang}
+                  onClick={() => setPrimaryLanguage(lang)}
+                  className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                    primaryLanguage === lang
+                      ? "bg-white/20 text-white shadow-sm"
+                      : "text-white/30 hover:text-white/60"
+                  }`}
+                >
+                  {lang}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Virtualized List */}
+      <div className="flex-1 min-h-0">
+        {filteredAndSortedItems.length > 0 ? (
+          <AutoSizer>
+            {({ height, width }: any) => (
+              <List
+                height={height}
+                itemCount={filteredAndSortedItems.length}
+                itemSize={92}
+                width={width}
+                className="no-scrollbar"
+              >
+                {Row}
+              </List>
+            )}
+          </AutoSizer>
+        ) : (
+          <div className="py-20 text-center">
+            <div className="text-[40px] mb-4">📭</div>
+            <div className="text-white/20 font-bold">No vocabulary found</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function VocabPage() {
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-[#0A0B0F] text-white">
@@ -59,117 +222,13 @@ export default function VocabPage() {
               "radial-gradient(1200px 800px at 50% 10%, rgba(255,255,255,0.05), rgba(0,0,0,0) 55%), radial-gradient(900px 600px at 50% 60%, rgba(179,107,255,0.07), rgba(0,0,0,0) 60%), #0A0B0F",
           }}
         >
-          <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
-            <header className="mb-6">
-              {/* Search and Filter */}
-              <div className="space-y-3 pt-4">
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search vocabulary..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-3.5 text-[15px] focus:outline-none focus:border-[#B36BFF]/50 transition-all placeholder:text-white/20"
-                  />
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-white/20">
-                    🔍
-                  </div>
-                </div>
-
-                <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar items-center justify-between">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setSortBy("Recent")}
-                      className={`whitespace-nowrap px-4 py-2 rounded-full text-[12px] font-bold transition-all border ${
-                        sortBy === "Recent"
-                          ? "bg-[#B36BFF] border-[#B36BFF] text-white shadow-[0_0_15px_rgba(179,107,255,0.3)]"
-                          : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
-                      }`}
-                    >
-                      Recent
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (sortBy === "Count") {
-                          setSortByOrder(sortOrder === "asc" ? "desc" : "asc");
-                        } else {
-                          setSortBy("Count");
-                          setSortByOrder("desc"); // Default to desc on first tap
-                        }
-                      }}
-                      className={`whitespace-nowrap px-4 py-2 rounded-full text-[12px] font-bold transition-all border flex items-center gap-1 ${
-                        sortBy === "Count"
-                          ? "bg-[#B36BFF] border-[#B36BFF] text-white shadow-[0_0_15px_rgba(179,107,255,0.3)]"
-                          : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10"
-                      }`}
-                    >
-                      Count ({sortBy === "Count" ? (sortOrder === "asc" ? "A-Z" : "Z-A") : "A-Z"})
-                    </button>
-                  </div>
-
-                  {/* Language Toggle */}
-                  <div className="flex bg-white/5 rounded-full p-1 border border-white/10 ml-4">
-                    {(["Thai", "Myanmar"] as const).map((lang) => (
-                      <button
-                        key={lang}
-                        onClick={() => setPrimaryLanguage(lang)}
-                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
-                          primaryLanguage === lang
-                            ? "bg-white/20 text-white shadow-sm"
-                            : "text-white/30 hover:text-white/60"
-                        }`}
-                      >
-                        {lang}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </header>
-
-            {/* List */}
-            <div className="space-y-2">
-              <AnimatePresence mode="popLayout">
-                {filteredAndSortedItems.map((it) => (
-                  <motion.div
-                    key={it.id}
-                    layout
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="group relative rounded-2xl bg-white/5 border border-white/5 p-4 hover:bg-white/[0.08] transition-all overflow-hidden"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[17px] font-bold text-white tracking-tight mb-0.5 truncate">
-                          {primaryLanguage === "Thai" ? it.thai : (it.burmese || "—")}
-                        </div>
-                        <div className="text-[13px] font-medium text-white/40 truncate">
-                          {primaryLanguage === "Thai" ? (it.burmese || "—") : it.thai}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="px-3 py-1.5 rounded-xl bg-black/20 border border-white/5 min-w-[48px] text-center">
-                          <span className="text-[14px] font-black text-[#2CE08B] tabular-nums">
-                            {it.count || 0}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    {/* Light streak effect on hover */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out pointer-events-none" />
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-
-              {filteredAndSortedItems.length === 0 && (
-                <div className="py-20 text-center">
-                  <div className="text-[40px] mb-4">📭</div>
-                  <div className="text-white/20 font-bold">No vocabulary found</div>
-                </div>
-              )}
+          <Suspense fallback={
+            <div className="min-h-screen bg-[#0A0B0F] flex items-center justify-center">
+              <div className="h-8 w-8 border-2 border-[#B36BFF] border-t-transparent rounded-full animate-spin" />
             </div>
-          </div>
+          }>
+            <VocabContent />
+          </Suspense>
         </div>
       </div>
     </ErrorBoundary>

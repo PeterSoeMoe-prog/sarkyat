@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage("appTheme") private var appTheme: AppTheme = .light
     @AppStorage("studyStartDateTimestamp") private var studyStartDateTimestamp: Double = 0
     @AppStorage("dailyTargetHits") private var dailyTargetHits: Int = 5000
+    @AppStorage("googleAiApiKey") private var googleAiApiKey: String = ""
     @EnvironmentObject private var vocabStore: VocabStore
 
     // Dismiss environment
@@ -99,6 +100,18 @@ struct SettingsView: View {
                             .keyboardType(.numberPad)
                         Text("Hits")
                             .foregroundColor(.secondary)
+                    }
+                }
+
+                Section("AI") {
+                    HStack {
+                        Text("Google AI API")
+                        Spacer()
+                        TextField("API Key", text: $googleAiApiKey)
+                            .multilineTextAlignment(.trailing)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.asciiCapable)
                     }
                 }
 
@@ -524,10 +537,7 @@ struct AudioRecordingView: View {
     }
 
     private func audioDurationSeconds(url: URL) -> TimeInterval {
-        let assetSeconds = AVURLAsset(url: url).duration.seconds
-        if assetSeconds.isFinite, assetSeconds > 0 {
-            return assetSeconds
-        }
+    
         if let player = try? AVAudioPlayer(contentsOf: url), player.duration.isFinite, player.duration > 0 {
             return player.duration
         }
@@ -813,7 +823,7 @@ struct AudioRecordingView: View {
                         isPreparingToRecord = true
 
                         let session = AVAudioSession.sharedInstance()
-                        session.requestRecordPermission { granted in
+                        AVAudioApplication.requestRecordPermission { granted in
                             DispatchQueue.main.async {
                                 defer { isPreparingToRecord = false }
                                 guard granted else {
@@ -905,8 +915,7 @@ struct AudioRecordingView: View {
                 )
             }
         }
-        .onChange(of: recordings) { newValue in
-            let encoded: [PersistedRecordingItem] = newValue.map {
+        .onChange(of: recordings) { _, newValue in            let encoded: [PersistedRecordingItem] = newValue.map {
                 PersistedRecordingItem(
                     id: $0.id.uuidString,
                     filename: $0.filename,

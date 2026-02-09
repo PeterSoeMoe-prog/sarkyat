@@ -197,8 +197,7 @@ struct DailyQuizView: View {
                 }
             }
         }
-        .onChange(of: currentIndex) { _ in
-            // Restart the 5s countdown when the question index changes
+        .onChange(of: currentIndex) { _, _ in            // Restart the 5s countdown when the question index changes
             if !showResult && !questions.isEmpty {
                 startTimer()
                 if skipNextIndexSpeak {
@@ -310,7 +309,6 @@ struct DailyQuizView: View {
                 ForEach(question.options, id: \.self) { option in
                     Button(action: {
                         // Play tap sound
-                        playTapSound()
                         answerSelected(option, for: question)
                     }) {
                         HStack {
@@ -636,7 +634,6 @@ struct DailyQuizView: View {
     // MARK: - Stats update
     // MARK: - Sound
     private func playTapSound() {
-        SoundManager.playSound(1104) // tap pop
     }
 
     private func updateQuizStats(correct: Int = 0, attempts: Int = 0) {

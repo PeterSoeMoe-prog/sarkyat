@@ -1,9 +1,12 @@
-const CACHE_NAME = "thai-vocab-trainer-v1";
+const CACHE_NAME = "sar-kyat-pro-v2";
 
 const PRECACHE_URLS = [
-  "/",
-  "/offline",
-  "/offline/",
+  "/home",
+  "/category",
+  "/vocab",
+  "/calendar",
+  "/quiz",
+  "/settings",
   "/manifest.webmanifest",
   "/icon-1024.png",
 ];
@@ -31,35 +34,33 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
 
-  if (request.method !== "GET") {
-    return;
-  }
+  if (request.method !== "GET") return;
 
-  const isNavigation = request.mode === "navigate";
-
-  if (isNavigation) {
+  // For navigation requests, try network first, then cache
+  if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request).catch(async () => {
-        const cache = await caches.open(CACHE_NAME);
-        const cached = (await cache.match("/offline/")) || (await cache.match("/offline"));
-        return cached || Response.error();
+      fetch(request).catch(() => {
+        return caches.match(request).then((response) => {
+          return response || caches.match("/home");
+        });
       })
     );
     return;
   }
 
+  // For other requests (assets), try cache first
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
 
-      return fetch(request)
-        .then((response) => {
-          if (!response || response.status !== 200) return response;
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+      return fetch(request).then((response) => {
+        if (!response || response.status !== 200 || response.type !== "basic") {
           return response;
-        })
-        .catch(() => cached);
+        }
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        return response;
+      });
     })
   );
 });

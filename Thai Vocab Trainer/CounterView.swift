@@ -200,7 +200,6 @@ struct CounterView: View {
             let nextIndex = (index + 1) % increments.count
             selectedIncrement = increments[nextIndex]
             updateInactivityThreshold()
-            SoundManager.playSound(1104)
             SoundManager.playVibration()
             UserDefaults.standard.set(selectedIncrement, forKey: incrementKey(for: item.id))
         }
@@ -223,8 +222,8 @@ struct CounterView: View {
 
     private func pickNextID() -> UUID? {
         // Prefer drill -> queue globally; avoid ready items
-        if let drill = allItems.first(where: { $0.status == .drill }) { return drill.id }
-        if let queue = allItems.first(where: { $0.status == .queue }) { return queue.id }
+        if let drill = allItems.first(where: { $0.status == .drill && $0.id != item.id }) { return drill.id }
+        if let queue = allItems.first(where: { $0.status == .queue && $0.id != item.id }) { return queue.id }
         return nil
     }
 
@@ -539,7 +538,6 @@ struct CounterView: View {
             )
             .offset(offset)
             .onTapGesture {
-                SoundManager.playSound(1104)
                 SoundManager.playVibration()
                 action?()
             }
@@ -889,7 +887,6 @@ struct CounterView: View {
                         .shadow(color: .orange, radius: 4)
                     VStack(spacing: 12) {
                         Button(action: {
-                            SoundManager.playSound(1104)
                             SoundManager.playVibration()
                             showCongrats = false
                             showCalendar = true
@@ -906,7 +903,15 @@ struct CounterView: View {
                                 .shadow(radius: 8)
                         }
                         Button(action: {
+                            SoundManager.playVibration()
                             showCongrats = false
+                            // If this popup is for hitting a daily target, keep studying the same vocab.
+                            // If it's for a vocab reaching Ready (or other non-target congrats), advance.
+                            if congratsTargetDayKey == nil, let nextID = pickNextID() {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                    routeToCounter(id: nextID)
+                                }
+                            }
                         }) {
                             Text("Continue")
                                 .font(.system(size: 28, weight: .bold))
@@ -954,7 +959,6 @@ struct CounterView: View {
                     statsCardsRow
                         .frame(maxWidth: .infinity)
                     Button(action: {
-                        SoundManager.playSound(1104)
                         SoundManager.playVibration()
                         showNotes = true
                     }) {
@@ -1040,7 +1044,7 @@ struct CounterView: View {
                     let cat = trimmed
                     dismiss()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        router.openTabCategory(cat)
+                        router.openCategory(cat)
                     }
                 }) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -1190,7 +1194,6 @@ struct CounterView: View {
                 .rotationEffect(.degrees(bigCircleRotation))
                 .onTapGesture {
                     sessionTimer.registerActivity()
-                    SoundManager.playSound(1104)
                     SoundManager.playVibration()
                     isGifPlaying = true
                     lastGifActivity = Date()
@@ -1210,9 +1213,14 @@ struct CounterView: View {
                             bigCircleGlow = false
                         }
                     }
-                    if item.status != .ready {
-                        item.status = .drill
-                        selectedStatusIndex = 1
+                    let oldStatus = item.status
+                    item.status = .drill
+                    selectedStatusIndex = 1
+                    if boostType == .vocabs {
+                        if oldStatus == .ready {
+                            remaining += 1
+                            storedRemaining = remaining
+                        }
                     }
                     item.count += selectedIncrement
                     RecentCountRecorder.shared.record(id: item.id)
@@ -1243,7 +1251,6 @@ struct CounterView: View {
                 .offset(y: -10)
 
             Button(action: {
-                SoundManager.playSound(1104)
                 SoundManager.playVibration()
                 selectedStatusIndex = (selectedStatusIndex + 1) % statusOptions.count
                 if selectedStatusIndex < statusMapping.count {
@@ -1299,7 +1306,6 @@ struct CounterView: View {
             .offset(x: 150, y: -207)
 
             Button(action: {
-                SoundManager.playSound(1104)
                 SoundManager.playVibration()
                 withAnimation { volumeLevel = (volumeLevel + 1) % 4 }
             }) {

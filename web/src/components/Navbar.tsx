@@ -14,6 +14,7 @@ const items: NavItem[] = [
   { href: "/category", label: "Category", icon: "▦" },
   { href: "/vocab", label: "Vocab", icon: "📚" },
   { href: "/calendar", label: "Calendar", icon: "📅" },
+  { href: "/quiz", label: "Quiz", icon: "📝" },
   { href: "/settings", label: "Settings", icon: "⚙︎" },
 ];
 
@@ -29,7 +30,7 @@ export function Navbar() {
     <div className="fixed inset-x-0 bottom-0 z-50 pb-[env(safe-area-inset-bottom)]">
       <div className="mx-auto w-full max-w-md px-4">
         <nav className="mb-3 rounded-2xl bg-[var(--surface)] backdrop-blur-2xl border border-[color:var(--border)] shadow-[0_8px_32px_rgba(0,0,0,0.15)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-          <div className="grid grid-cols-5 px-1">
+          <div className="grid grid-cols-6 px-1">
             {items.map((it) => {
               const active = isActive(it.href);
               return (

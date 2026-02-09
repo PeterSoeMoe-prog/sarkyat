@@ -290,3 +290,24 @@ export async function importVocabularyRows(uid: string, rows: ImportVocabularyRo
 
   return { importedCount: normalized.length, firstId };
 }
+
+/**
+ * Failed Quiz Persistence
+ */
+export async function saveFailedQuizIds(uid: string, ids: string[]): Promise<void> {
+  if (!uid) return;
+  const db = getFirebaseDb();
+  const ref = doc(db, "users", uid, "settings", "failed_quiz");
+  await setDoc(ref, { ids, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function fetchFailedQuizIds(uid: string): Promise<string[]> {
+  if (!uid) return [];
+  const db = getFirebaseDb();
+  const ref = doc(db, "users", uid, "settings", "failed_quiz");
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    return (snap.data() as { ids?: string[] }).ids ?? [];
+  }
+  return [];
+}
