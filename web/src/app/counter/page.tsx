@@ -29,10 +29,25 @@ function CounterPageInner() {
   const ghostBtn =
     "rounded-full bg-[var(--surface)]/50 px-4 py-2 text-[13px] font-semibold text-[color:var(--foreground)] backdrop-blur-xl border border-[color:var(--border)] shadow-sm hover:shadow-md transition-shadow";
 
-  const { uid, isAnonymous, items, loading, vocabLogic, backfillingState } = useVocabulary();
+  const { uid, isAnonymous, items, loading, vocabLogic, backfillingState, totalVocabCounts, xDate, rule } = useVocabulary();
   const isAuthed = !!uid && !isAnonymous;
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("id");
+
+  const [activeTargetCard, setActiveTargetCard] = useState(0);
+
+  const daysDifference = useMemo(() => {
+    if (!xDate || !rule) return 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(xDate);
+    start.setHours(0, 0, 0, 0);
+    const diffTime = today.getTime() - start.getTime();
+    const currentDayIndex = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const targetItems = (currentDayIndex + 1) * rule;
+    const diffItems = totalVocabCounts - targetItems;
+    return Math.round(diffItems / rule);
+  }, [totalVocabCounts, rule, xDate]);
 
   const currentTargetDate = useMemo(() => {
     if (!backfillingState?.currentTargetDate) return new Date();
@@ -641,7 +656,7 @@ function CounterPageInner() {
                 </div>
               ) : !current ? <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">{items.length ? "Word not found" : "No words yet"}</div> : (
                 <>
-                  <div className="mx-auto w-full max-w-[90%] px-3 text-center -mt-[20px]">
+                  <div className="mx-auto w-full max-w-[90%] px-3 text-center mt-[-10px]">
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.button key={current.id} type="button" onClick={() => void playThaiTts(thai, "main-" + current.id)} disabled={ttsBusy} className={"bg-transparent font-semibold tracking-[-0.02em] transition-opacity whitespace-normal break-words leading-snug " + thaiFontClass + (ttsActive === "main-" + current.id ? " opacity-75" : " opacity-100")} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
                         {Array.from(thai).map((ch, i) => <span key={i} style={{ color: thaiColors[i % thaiColors.length] }}>{ch}</span>)}
@@ -663,17 +678,94 @@ function CounterPageInner() {
                         <motion.div className="relative w-full aspect-square rounded-full border-[6px] border-white/90 overflow-hidden shadow-[0_0_80px_rgba(96,165,250,0.5)]" onClick={handleCircleTap} style={{ background: "conic-gradient(from 0deg, #00F2FF, #006AFF, #7000FF, #FF00C8, #FF0032, #FF8A00, #00F2FF)" }} whileTap={{ scale: 0.94 }}>
                           <motion.div className="absolute inset-0" animate={{ rotate: [0, 360] }} transition={{ duration: 4, repeat: Infinity, ease: "linear" }} style={{ background: "conic-gradient(from 0deg, transparent, rgba(255,255,255,0.5), transparent)" }} />
                           <div className="absolute inset-0 rounded-full bg-black/10 backdrop-blur-[2px]" />
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <img src="/dog.gif" alt="Dog" className="w-[45%] h-auto object-contain" />
+                          </div>
                           <div className="absolute inset-0 overflow-visible pointer-events-none">{particles.map(p => <AnimatePresence key={p.id}><motion.span className="absolute h-[12px] w-[12px] rounded-full" style={{ backgroundColor: p.color, boxShadow: "0 0 25px " + p.color }} initial={{ x: 0, y: 0, opacity: 1 }} animate={{ x: p.x * 2.8, y: p.y * 2.8, opacity: 0, scale: 0.3 }} transition={{ duration: 0.9 }} /></AnimatePresence>)}</div>
                         </motion.div>
                         <div className="absolute bottom-[5px] right-[5px] z-30"><button type="button" onClick={(e) => { e.stopPropagation(); if (isAuthed && current && !countBusy) decrementCount(); }} className="h-[72px] w-[72px] sm:h-[82px] sm:w-[82px] rounded-full border-4 border-white/90 bg-gradient-to-br from-[#FF4D6D] to-[#FF7A00] flex items-center justify-center text-[30px] sm:text-[36px] font-black text-white">↓</button></div>
                       </div>
                     </div>
                     <div className="mt-auto pt-5">
-                      <div className="w-full rounded-2xl border border-white/20 bg-black/40 px-4 py-3 flex items-center justify-between text-[11px] font-semibold h-[80px] relative">
-                        <div className="z-10 text-white/60">To Hit</div>
-                        <div className="z-10 text-white/45">For {dateText}</div>
-                        <div className="absolute inset-0 flex items-center justify-center text-[50px] font-semibold bg-gradient-to-r from-[#60A5FA] to-[#FF4D6D] bg-clip-text text-transparent">
-                          {toHitCount.toLocaleString()}
+                      <div className="relative rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] overflow-hidden">
+                        {/* Pagination Dots */}
+                        <div className="absolute top-2 left-0 right-0 flex items-center justify-center gap-1.5 z-20 pointer-events-none">
+                          {[0, 1, 2, 3].map((idx) => (
+                            <div 
+                              key={idx}
+                              className={`h-[4px] rounded-full transition-all duration-300 ${activeTargetCard === idx ? 'bg-white/70 w-3' : 'bg-white/30 w-[4px]'}`} 
+                            />
+                          ))}
+                        </div>
+
+                        <div className="relative overflow-hidden h-[85px]">
+                          <div 
+                            className="flex transition-transform duration-500 ease-out h-full"
+                            style={{ transform: `translateX(-${activeTargetCard * 100}%)` }}
+                            onTouchStart={(e) => {
+                              const touch = e.touches[0];
+                              const startX = touch.clientX;
+                              const handleTouchEnd = (ee: TouchEvent) => {
+                                const endX = ee.changedTouches[0].clientX;
+                                if (startX - endX > 50 && activeTargetCard < 3) setActiveTargetCard(prev => prev + 1);
+                                if (endX - startX > 50 && activeTargetCard > 0) setActiveTargetCard(prev => prev - 1);
+                                document.removeEventListener("touchend", handleTouchEnd);
+                              };
+                              document.addEventListener("touchend", handleTouchEnd);
+                            }}
+                          >
+                            {/* Card 1: To Hit */}
+                            <div className="w-full shrink-0 px-4 py-3 flex items-center justify-between relative h-full">
+                              <div className="flex flex-col">
+                                <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">To Hit</span>
+                                <span className="text-[10px] font-medium text-white/20 uppercase tracking-tight">For {dateText}</span>
+                              </div>
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <span className="text-[52px] font-black bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 bg-clip-text text-transparent leading-none">
+                                  {toHitCount.toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Card 2: Today Hits */}
+                            <div className="w-full shrink-0 px-4 py-3 flex items-center justify-between relative h-full">
+                              <div className="flex flex-col">
+                                <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Today Hits</span>
+                                <span className="text-[10px] font-medium text-white/20 uppercase tracking-tight">Daily Progress</span>
+                              </div>
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <span className="text-[52px] font-black bg-gradient-to-r from-[#2CE08B] to-[#49D2FF] bg-clip-text text-transparent leading-none">
+                                  {(backfillingState?.currentDayProgress || 0).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Card 3: Total Vocab */}
+                            <div className="w-full shrink-0 px-4 py-3 flex items-center justify-between relative h-full">
+                              <div className="flex flex-col">
+                                <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Total Vocab</span>
+                                <span className="text-[10px] font-medium text-white/20 uppercase tracking-tight">Lifetime</span>
+                              </div>
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <span className="text-[52px] font-black bg-gradient-to-r from-[#FFB020] to-[#FF4D6D] bg-clip-text text-transparent leading-none">
+                                  {totalVocabCounts.toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Card 4: Missed Days */}
+                            <div className="w-full shrink-0 px-4 py-3 flex items-center justify-between relative h-full">
+                              <div className="flex flex-col">
+                                <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Missed Days</span>
+                                <span className="text-[10px] font-medium text-white/20 uppercase tracking-tight">Vs Target</span>
+                              </div>
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <span className="text-[52px] font-black bg-gradient-to-r from-[#FF4D6D] to-[#B36BFF] bg-clip-text text-transparent leading-none">
+                                  {daysDifference < 0 ? Math.abs(daysDifference) : 0}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
