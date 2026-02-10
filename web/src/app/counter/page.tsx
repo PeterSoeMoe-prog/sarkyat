@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
+import Lottie, { LottieRefCurrentProps } from "lottie-react";
+// Import animation data directly to ensure it's bundled
+import dogAnimationData from "../../../public/dog-walking.json";
 import { ChevronLeft, Volume2, Plus, Minus, Info, Settings, List, Edit2, Check, X, RefreshCcw } from "lucide-react";
 import { Suspense, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -157,8 +160,38 @@ function CounterPageInner() {
   const lastAutoSpokenIdRef = useRef<string | null>(null);
   const [tapTtsMode, setTapTtsMode] = useState<"max" | "3" | "10" | "off">("off");
   const dogTapCountRef = useRef(0);
+  const [isDogPlaying, setIsDogPlaying] = useState(false);
+  const [hasTappedOnce, setHasTappedOnce] = useState(false);
+  const [dogResetKey, setDogResetKey] = useState(0);
+  const lottieRef = useRef<LottieRefCurrentProps>(null);
+  
+  // Initialize with a reset key to ensure paused state on load
+  useEffect(() => {
+    setDogResetKey(Date.now());
+  }, []);
+
+  useEffect(() => {
+    if (lottieRef.current) {
+      if (isDogPlaying) {
+        lottieRef.current.play();
+      } else {
+        lottieRef.current.pause();
+      }
+    }
+  }, [isDogPlaying]);
+  const dogStopTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerDogAnimation = () => {
+    setIsDogPlaying(true);
+    setHasTappedOnce(true);
+    if (dogStopTimerRef.current) clearTimeout(dogStopTimerRef.current);
+    dogStopTimerRef.current = setTimeout(() => {
+      setIsDogPlaying(false);
+      setDogResetKey(Date.now());
+      dogStopTimerRef.current = null;
+    }, 3000);
+  };
   const [dogHasWalked, setDogHasWalked] = useState(false);
-  const [dogWalking, setDogWalking] = useState(false);
   const dogWalkTimeoutRef = useRef<number | null>(null);
   const [dogJump, setDogJump] = useState(false);
   const dogJumpTimeoutRef = useRef<number | null>(null);
@@ -228,7 +261,7 @@ function CounterPageInner() {
 
   const triggerParticles = () => {
     if (!thai.trim()) return;
-    const colors = ["#60A5FA", "#49D2FF", "#2CE08B", "#FFB020", "#FF4D6D", "#B36BFF"];
+    const particleColors = ["#60A5FA", "#49D2FF", "#2CE08B", "#FFB020", "#FF4D6D", "#B36BFF"];
     const count = 18;
     const next: TapParticle[] = [];
     for (let i = 0; i < count; i++) {
@@ -240,7 +273,7 @@ function CounterPageInner() {
         id: particleIdRef.current++,
         x: Math.cos(angle) * distance,
         y: Math.sin(angle) * distance,
-        color: colors[i % colors.length],
+        color: particleColors[i % particleColors.length],
       });
     }
     setParticles(next);
@@ -272,6 +305,7 @@ function CounterPageInner() {
     triggerParticles();
     setPulseKey((k) => k + 1);
     
+    triggerDogAnimation();
     if (tapTtsMode === "off" || soundLevel === 0) return;
     const every = tapTtsMode === "max" ? 1 : tapTtsMode === "3" ? 3 : 10;
     if (dogTapCountRef.current % every === 0) {
@@ -360,6 +394,8 @@ function CounterPageInner() {
     }
   };
 
+  const allCategories = useMemo(() => Array.from(new Set(items.map((it) => (it.category?.toString().trim() || "Uncategorized").trim()))).sort(), [items]);
+
   const categoryTotals = useMemo(() => {
     if (!isAuthed || !current) return { notReady: 0, total: 0 };
     const cat = categoryName;
@@ -367,9 +403,17 @@ function CounterPageInner() {
     return { notReady: inCat.filter((it) => it.status !== "ready").length, total: inCat.length };
   }, [isAuthed, items, current, categoryName]);
 
-  const allCategories = useMemo(() => Array.from(new Set(items.map((it) => (it.category?.toString().trim() || "Uncategorized").trim()))).sort(), [items]);
+  const getThaiSyllables = (text: string) => {
+    try {
+      const segmenter = new Intl.Segmenter('th', { granularity: 'grapheme' });
+      return Array.from(segmenter.segment(text)).map(s => s.segment);
+    } catch (e) {
+      return Array.from(text);
+    }
+  };
 
   const thaiColors = ["#49D2FF", "#B36BFF", "#FF4D6D", "#FFB000", "#22C55E", "#60A5FA"];
+  const thaiSyllables = useMemo(() => getThaiSyllables(thai), [thai]);
 
   const readGoogleAiKey = () => { try { return (localStorage.getItem(GOOGLE_AI_API_KEY_STORAGE) ?? "").trim(); } catch { return ""; } };
   const readAiRateLimitUntil = () => { try { const raw = (localStorage.getItem(AI_RATE_LIMIT_UNTIL_KEY) ?? "").trim(); const ms = Number(raw); return Number.isFinite(ms) ? ms : 0; } catch { return 0; } };
@@ -491,7 +535,7 @@ function CounterPageInner() {
         {comp && (
           <div className="space-y-2">
             <div className="flex items-center justify-between px-1">
-              <span className="text-[16px] font-bold text-[#F5C542] tracking-wide">ဖွဲ့စည်းပုံ</span>
+              <span className="text-[18px] font-black text-[#00F2FF] tracking-wide [text-shadow:0_0_10px_rgba(0,242,255,0.8),0_0_20px_rgba(0,106,255,0.4)]">ဖွဲ့စည်းပုံ</span>
               <button 
                 onClick={() => void startAutoExplain('composition')}
                 disabled={aiBusy}
@@ -513,7 +557,7 @@ function CounterPageInner() {
         {sent && (
           <div className="space-y-2">
             <div className="flex items-center justify-between px-1">
-              <span className="text-[16px] font-bold text-[#F5C542] tracking-wide">ဝါကျ</span>
+              <span className="text-[18px] font-black text-[#FF00C8] tracking-wide [text-shadow:0_0_10px_rgba(255,0,200,0.8),0_0_20px_rgba(112,0,255,0.4)]">ဝါကျ</span>
               <button 
                 onClick={() => void startAutoExplain('sentence')}
                 disabled={aiBusy}
@@ -659,7 +703,7 @@ function CounterPageInner() {
                   <div className="mx-auto w-full max-w-[90%] px-3 text-center mt-[-10px]">
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.button key={current.id} type="button" onClick={() => void playThaiTts(thai, "main-" + current.id)} disabled={ttsBusy} className={"bg-transparent font-semibold tracking-[-0.02em] transition-opacity whitespace-normal break-words leading-snug " + thaiFontClass + (ttsActive === "main-" + current.id ? " opacity-75" : " opacity-100")} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
-                        {Array.from(thai).map((ch, i) => <span key={i} style={{ color: thaiColors[i % thaiColors.length] }}>{ch}</span>)}
+                        {thaiSyllables.map((ch, i) => <span key={i} style={{ color: thaiColors[i % thaiColors.length] }}>{ch}</span>)}
                       </motion.button>
                     </AnimatePresence>
                     {burmese && <div className="mt-1 text-[18px] sm:text-[20px] font-semibold text-[#F5C542]">{burmese}</div>}
@@ -667,9 +711,34 @@ function CounterPageInner() {
                   <div className="mt-3">
                     <div className="flex items-start justify-between">
                       <button type="button" onClick={() => void cycleStatus()} disabled={statusBusy} className={"flex h-[72px] w-[72px] items-center justify-center text-[53px] " + (statusBusy ? "opacity-55" : "opacity-100")}>{statusIcon}</button>
-                      <div className="flex-1 text-center -mt-[20px]"><div className="inline-flex items-start gap-2"><motion.div key={effectiveCount} initial={{ scale: 1 }} animate={pulseKey > 0 ? { scale: [1, 1.15, 1] } : {}} className="bg-gradient-to-r from-[#60A5FA] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[65px] sm:text-[76px] font-black leading-none mt-[10px]">{effectiveCount.toLocaleString()}{tapPopupText && <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50"><AnimatePresence mode="wait"><motion.div key={tapPopupKey} initial={{ opacity: 0, y: 140, scale: 0.5 }} animate={{ opacity: 1, x: 140, y: -50, scale: 2.5, rotate: 15 }} exit={{ opacity: 0, x: 180, y: -110, scale: 1.5 }} className="font-black text-white drop-shadow-[0_0_15px_rgba(255,122,0,0.8)] text-[24px]"><span className="text-[14px] mt-1 mr-0.5 font-black">+</span>{tapPopupText.replace('+', '')}</motion.div></AnimatePresence></div>}</motion.div></div></div>
+                      <div className="flex-1 text-center -mt-[20px]"><div className="inline-flex items-start gap-2"><motion.div key={effectiveCount} initial={{ scale: 1 }} animate={pulseKey > 0 ? { scale: [1, 1.15, 1] } : {}} className="bg-gradient-to-r from-[#60A5FA] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[65px] sm:text-[76px] font-black leading-none mt-[10px]">{effectiveCount.toLocaleString()}{tapPopupText && (
+  <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50">
+    <AnimatePresence mode="popLayout">
+      <motion.div 
+        key={tapPopupKey} 
+        initial={{ opacity: 0, y: 20, scale: 0.5, rotate: -10 }} 
+        animate={{ 
+          opacity: [0, 1, 1, 0],
+          y: -140, 
+          x: 120,
+          scale: [0.5, 2.5, 2.8, 2],
+          rotate: [ -10, 15, 20, 25 ]
+        }} 
+        transition={{ 
+          duration: 0.8,
+          times: [0, 0.2, 0.8, 1],
+          ease: "easeOut"
+        }}
+        className="font-black text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.8)] [text-shadow:0_0_10px_rgba(255,255,255,0.8),0_0_20px_rgba(255,122,0,0.9),0_0_30px_rgba(255,122,0,0.7)] text-[24px]"
+      >
+        <span className="text-[14px] mt-1 mr-0.5 font-black">+</span>
+        {tapPopupText.replace('+', '')}
+      </motion.div>
+    </AnimatePresence>
+  </div>
+)}</motion.div></div></div>
                       <div className="flex w-[74px] flex-col items-center gap-3">
-                        <button type="button" onClick={cycleStep} className="h-[68px] w-[68px] rounded-full p-[3px] bg-white/20"><div className="h-full w-full rounded-full border-[3px] border-white/90 bg-gradient-to-br from-[#FF4D6D] to-[#FF7A00] flex items-center justify-center relative"><span className="absolute top-[10px] left-[12px] text-[14px] font-black">+</span><span className="text-[34px] font-black">{incrementStep}</span></div></button>
+                        <button type="button" onClick={cycleStep} className="h-[68px] w-[68px] rounded-full p-[3px] bg-white/20"><div className="h-full w-full rounded-full border-[3px] border-white/90 bg-gradient-to-br from-[#FF4D6D] to-[#FF7A00] flex items-center justify-center relative"><span className="absolute top-[10px] left-[6px] text-[14px] font-black">+</span><span className="text-[34px] font-black">{incrementStep}</span></div></button>
                         <button type="button" onClick={cycleTapMode} className="relative h-[42px] w-[42px] rounded-full border bg-white/10 flex items-center justify-center text-[16px]">{tapTtsIcon}{tapTtsBadge && <div className="absolute -right-1 -bottom-1 h-[16px] min-w-[16px] rounded-full bg-white/90 text-[10px] font-semibold text-black">{tapTtsBadge}</div>}</button>
                       </div>
                     </div>
@@ -678,8 +747,23 @@ function CounterPageInner() {
                         <motion.div className="relative w-full aspect-square rounded-full border-[6px] border-white/90 overflow-hidden shadow-[0_0_80px_rgba(96,165,250,0.5)]" onClick={handleCircleTap} style={{ background: "conic-gradient(from 0deg, #00F2FF, #006AFF, #7000FF, #FF00C8, #FF0032, #FF8A00, #00F2FF)" }} whileTap={{ scale: 0.94 }}>
                           <motion.div className="absolute inset-0" animate={{ rotate: [0, 360] }} transition={{ duration: 4, repeat: Infinity, ease: "linear" }} style={{ background: "conic-gradient(from 0deg, transparent, rgba(255,255,255,0.5), transparent)" }} />
                           <div className="absolute inset-0 rounded-full bg-black/10 backdrop-blur-[2px]" />
-                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <img src="/dog.gif" alt="Dog" className="w-[45%] h-auto object-contain" />
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[100]">
+                            <div className="w-[120px] h-[120px] scale-x-[-1] flex items-center justify-center">
+                              {!isDogPlaying ? (
+                                <img 
+                                  src="/dog-static.png" 
+                                  alt="Dog" 
+                                  className="w-full h-full object-contain relative z-[101]"
+                                />
+                              ) : (
+                                <img 
+                                  src="/dog.gif" 
+                                  alt="Dog" 
+                                  className="w-full h-full object-contain relative z-[101]"
+                                  style={{ display: 'block' }}
+                                />
+                              )}
+                            </div>
                           </div>
                           <div className="absolute inset-0 overflow-visible pointer-events-none">{particles.map(p => <AnimatePresence key={p.id}><motion.span className="absolute h-[12px] w-[12px] rounded-full" style={{ backgroundColor: p.color, boxShadow: "0 0 25px " + p.color }} initial={{ x: 0, y: 0, opacity: 1 }} animate={{ x: p.x * 2.8, y: p.y * 2.8, opacity: 0, scale: 0.3 }} transition={{ duration: 0.9 }} /></AnimatePresence>)}</div>
                         </motion.div>
@@ -773,24 +857,15 @@ function CounterPageInner() {
                     {showAiExplain && (
                       <div className="mt-6 w-full flex flex-col">
                         <div className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-4 flex flex-col max-h-[70vh]">
-                          <div className="flex items-center justify-end">
-                            {!current.ai_explanation && <button type="button" onClick={() => { setAiDraft(null); setAiError(null); setAiDismissedId(current.id); }} className={ghostBtn}>Close</button>}
-                          </div>
-                          <div className="mt-3 flex-1 overflow-y-auto pb-[100px]">
+                          <div className="flex-1 overflow-y-auto pb-[100px]">
                             {current.ai_composition || current.ai_sentence || current.ai_explanation ? (
                               <div>{renderAiExplain(String(current.ai_explanation || ""), current.ai_composition, current.ai_sentence)}</div>
                             ) : aiBusy ? (
-                              <div className="text-white/60">Generating…</div>
+                              <div className="flex items-center gap-2 text-white/40"><RefreshCcw className="animate-spin" size={16} /> AI Explaining…</div>
                             ) : aiError ? (
-                              <div className="text-red-200">{aiError} <button onClick={() => void startAutoExplain()} className="underline">Retry</button></div>
+                              <div className="text-red-400 text-[14px]">{aiError}</div>
                             ) : aiDraft ? (
-                              <div className="space-y-4">
-                                <div>{renderAiExplain(aiDraft)}</div>
-                                <div className="flex gap-3">
-                                  <button onClick={() => setAiDraft(null)} className={ghostBtn}>Discard</button>
-                                  <button onClick={confirmAndSaveAi} disabled={aiSaving} className="flex-1 py-3 rounded-xl bg-[#2CE08B] text-black font-black">Keep this Explanation</button>
-                                </div>
-                              </div>
+                              <div className="text-white/80">{aiDraft}</div>
                             ) : null}
                           </div>
                         </div>
