@@ -1,21 +1,76 @@
 "use client";
 
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
-import { useState, useMemo, Suspense } from "react";
+import { VocabularyEntry, VocabularyStatus } from "@/lib/vocab/types";
+import { useState, useMemo, Suspense, useEffect, ReactNode } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { upsertVocabulary } from "@/lib/vocab/firestore";
+import { LucidePlus, LucideX } from "lucide-react";
 
 type SortOption = "Recent" | "Count";
 
 function VocabContent() {
-  const { items, loading } = useVocabulary();
+  const { items, loading, uid } = useVocabulary();
+  
+  // Local derivation of allCategories to avoid useVocabulary dependency issue
+  const allCategories = useMemo(() => {
+    const cats = new Set<string>();
+    items.forEach(it => {
+      if (it.category) cats.add(it.category.trim());
+    });
+    return Array.from(cats).sort();
+  }, [items]);
+
   const searchParams = useSearchParams();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("Recent");
   const [sortOrder, setSortByOrder] = useState<"asc" | "desc">("desc");
   const [primaryLanguage, setPrimaryLanguage] = useState<"Thai" | "Myanmar">("Thai");
+
+  const [isAdding, setIsAdding] = useState(false);
+  const [newThai, setNewThai] = useState("");
+  const [newBurmese, setNewBurmese] = useState("");
+  const [newCategory, setNewCategory] = useState("");
+  const [newStatus, setNewStatus] = useState<VocabularyStatus>("queue");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const mode = searchParams.get("mode");
+
+  useEffect(() => {
+    if (mode === "add") {
+      setIsAdding(true);
+    }
+  }, [mode]);
+
+  const handleSaveNew = async () => {
+    if (!uid || !newThai.trim()) return;
+    setIsSaving(true);
+    try {
+      const newEntry: VocabularyEntry = {
+        id: crypto.randomUUID(),
+        thai: newThai.trim(),
+        burmese: newBurmese.trim(),
+        category: newCategory.trim() || "General",
+        count: 0,
+        status: newStatus,
+        updatedAt: Date.now(),
+      };
+      await upsertVocabulary(uid, newEntry);
+      setNewThai("");
+      setNewBurmese("");
+      setNewCategory("");
+      setIsAdding(false);
+      // Remove mode=add from URL without full reload
+      router.replace("/vocab");
+    } catch (err) {
+      console.error("Save error:", err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const categoryFilter = searchParams.get("category");
 
@@ -64,8 +119,94 @@ function VocabContent() {
   return (
     <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+20px)] pb-[calc(env(safe-area-inset-bottom)+118px)] flex flex-col min-h-screen">
       <header className="mb-6 shrink-0">
+        <div className="flex items-center justify-between pt-4 mb-4">
+          <h1 className="text-2xl font-black text-white">Vocabulary</h1>
+          <button
+            onClick={() => setIsAdding(!isAdding)}
+            className={`h-10 w-10 rounded-full flex items-center justify-center transition-all ${
+              isAdding ? "bg-white/10 text-white/40" : "bg-[#B36BFF] text-white shadow-lg shadow-[#B36BFF]/20"
+            }`}
+          >
+            {isAdding ? <LucideX size={20} /> : <LucidePlus size={20} />}
+          </button>
+        </div>
+
+        <AnimatePresence>
+          {isAdding && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden mb-6"
+            >
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4 shadow-xl">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-black uppercase tracking-widest text-white/30 ml-1">Thai Word</label>
+                  <input
+                    type="text"
+                    value={newThai}
+                    onChange={(e) => setNewThai(e.target.value)}
+                    placeholder="Enter Thai text..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[16px] focus:border-[#B36BFF]/50 outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-black uppercase tracking-widest text-white/30 ml-1">Burmese Mean</label>
+                  <input
+                    type="text"
+                    value={newBurmese}
+                    onChange={(e) => setNewBurmese(e.target.value)}
+                    placeholder="Enter Myanmar translation..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[16px] focus:border-[#B36BFF]/50 outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-black uppercase tracking-widest text-white/30 ml-1">Category</label>
+                  <input
+                    type="text"
+                    list="vocab-cat-suggestions"
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    placeholder="General..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[16px] focus:border-[#B36BFF]/50 outline-none transition-all"
+                  />
+                  <datalist id="vocab-cat-suggestions">
+                    {allCategories.map((c: string) => <option key={c} value={c} />)}
+                  </datalist>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-black uppercase tracking-widest text-white/30 ml-1">Status</label>
+                  <div className="flex gap-2">
+                    {(["queue", "drill", "ready"] as const).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setNewStatus(s)}
+                        className={`flex-1 py-3 rounded-xl border transition-all text-[20px] ${
+                          newStatus === s 
+                            ? "bg-white/20 border-white/40 shadow-inner" 
+                            : "bg-white/5 border-white/10 opacity-40 hover:opacity-100"
+                        }`}
+                      >
+                        {s === "ready" ? "💎" : s === "queue" ? "😮" : "🔥"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  disabled={isSaving || !newThai.trim()}
+                  onClick={handleSaveNew}
+                  className="w-full bg-gradient-to-r from-[#B36BFF] to-[#FF4D6D] py-4 rounded-xl text-white font-black text-[15px] shadow-lg shadow-[#B36BFF]/20 active:scale-[0.98] transition-all disabled:opacity-50"
+                >
+                  {isSaving ? "Saving..." : "Add to Library"}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Search and Filter */}
-        <div className="space-y-3 pt-4 mb-4">
+        <div className="space-y-3 mb-4">
           <div className="relative">
             <input
               type="text"

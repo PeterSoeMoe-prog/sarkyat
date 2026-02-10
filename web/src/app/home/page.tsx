@@ -367,8 +367,17 @@ export default function HomePage() {
           }}
         >
           <div className="mx-auto w-full max-w-md px-4 pt-[calc(env(safe-area-inset-top)+18px)] pb-[calc(env(safe-area-inset-bottom)+118px)]">
-            <div className="relative w-full flex items-center justify-center">
-              <div className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">
+            <div className="relative w-full flex items-center justify-center min-h-[44px]">
+              <div className="absolute left-0 flex items-center z-50">
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => router.push("/vocab?mode=add")}
+                  className="flex items-center justify-center h-[38px] w-[38px] rounded-full bg-white/10 border-2 border-white/20 shadow-[0_0_15px_rgba(255,255,255,0.1)] active:bg-white/20 transition-all group backdrop-blur-md"
+                >
+                  <span className="text-[24px] font-black text-white leading-none mb-0.5">+</span>
+                </motion.button>
+              </div>
+              <div className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent pointer-events-none">
                 Sar Kyat Pro
               </div>
               <div className="absolute right-0 flex items-center gap-3">
@@ -499,6 +508,15 @@ export default function HomePage() {
                           Daily Quiz
                         </motion.button>
                       </div>
+
+                      <motion.button
+                        type="button"
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => router.push("/ai-plus")}
+                        className={btnBase + " mt-3 bg-white/5 border border-white/10 !py-3.5 !text-[15px] font-black text-white/80 shadow-none hover:bg-white/10 transition-colors"}
+                      >
+                        <span className="bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">AI+ Vocabs</span>
+                      </motion.button>
                     </div>
                   </div>
 

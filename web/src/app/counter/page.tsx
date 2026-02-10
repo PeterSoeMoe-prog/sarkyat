@@ -530,12 +530,67 @@ function CounterPageInner() {
       ).filter(l => l.length > 0).join("\n");
     }
 
+    const colorizeTerms = (line: string) => {
+      const terms = ["ဗျည်း", "သရ", "အသတ်ဗျည်း"];
+      // Also catch anything inside [ ] or ( ) that contains Thai characters
+      let parts: (string | ReactNode)[] = [line];
+      
+      // First, handle Thai characters inside brackets/parentheses
+      const thaiInBracketsRegex = /([\[\(])([\u0E00-\u0E7F\s]+)([\]\)])/g;
+      const thaiParts: (string | ReactNode)[] = [];
+      parts.forEach(part => {
+        if (typeof part !== 'string') {
+          thaiParts.push(part);
+          return;
+        }
+
+        let lastIndex = 0;
+        let match;
+        while ((match = thaiInBracketsRegex.exec(part)) !== null) {
+          // Push text before match
+          if (match.index > lastIndex) {
+            thaiParts.push(part.substring(lastIndex, match.index));
+          }
+          // Push the bracketed Thai with red color
+          thaiParts.push(match[1]);
+          thaiParts.push(<span key={`thai-${match.index}`} className="text-[#FF4D4D] font-bold">{match[2]}</span>);
+          thaiParts.push(match[3]);
+          lastIndex = thaiInBracketsRegex.lastIndex;
+        }
+        if (lastIndex < part.length) {
+          thaiParts.push(part.substring(lastIndex));
+        }
+      });
+      parts = thaiParts;
+
+      // Then handle the Burmese terms
+      terms.forEach(term => {
+        const nextParts: (string | ReactNode)[] = [];
+        parts.forEach(part => {
+          if (typeof part !== 'string') {
+            nextParts.push(part);
+            return;
+          }
+          
+          const split = part.split(term);
+          split.forEach((s, i) => {
+            if (s !== "") nextParts.push(s);
+            if (i < split.length - 1) {
+              nextParts.push(<span key={term + i} className="text-[#F5C542] font-bold">{term}</span>);
+            }
+          });
+        });
+        parts = nextParts;
+      });
+      return parts;
+    };
+
     return (
       <div className="space-y-6">
         {comp && (
           <div className="space-y-2">
             <div className="flex items-center justify-between px-1">
-              <span className="text-[18px] font-black text-[#00F2FF] tracking-wide [text-shadow:0_0_10px_rgba(0,242,255,0.8),0_0_20px_rgba(0,106,255,0.4)]">ဖွဲ့စည်းပုံ</span>
+              <span className="text-[17px] font-black text-[#00F2FF] tracking-wide [text-shadow:0_0_8px_rgba(0,242,255,0.6)]">ဖွဲ့စည်းပုံ</span>
               <button 
                 onClick={() => void startAutoExplain('composition')}
                 disabled={aiBusy}
@@ -547,7 +602,7 @@ function CounterPageInner() {
             <div className="space-y-2">
               {comp.split("\n").filter(l => l.trim()).map((line, idx) => (
                 <div key={idx} className="text-[15px] leading-relaxed text-white/90 font-medium">
-                  {line}
+                  {colorizeTerms(line)}
                 </div>
               ))}
             </div>
@@ -557,7 +612,7 @@ function CounterPageInner() {
         {sent && (
           <div className="space-y-2">
             <div className="flex items-center justify-between px-1">
-              <span className="text-[18px] font-black text-[#FF00C8] tracking-wide [text-shadow:0_0_10px_rgba(255,0,200,0.8),0_0_20px_rgba(112,0,255,0.4)]">ဝါကျ</span>
+              <span className="text-[17px] font-black text-[#FF00C8] tracking-wide [text-shadow:0_0_8px_rgba(255,0,200,0.6)]">ဝါကျ</span>
               <button 
                 onClick={() => void startAutoExplain('sentence')}
                 disabled={aiBusy}
@@ -571,7 +626,7 @@ function CounterPageInner() {
                 const isBurmese = /[\u1000-\u109F]/.test(line);
                 const isThai = /[\u0E00-\u0E7F]/.test(line);
                 return (
-                  <div key={idx} className={`text-[15px] leading-relaxed font-medium ${isBurmese ? 'text-white/70' : 'text-white/90'}`}>
+                  <div key={idx} className={`text-[15px] leading-relaxed font-medium ${isBurmese ? 'text-[#60A5FA]' : 'text-white/90'}`}>
                     {isThai ? (
                       <button 
                         type="button" 
@@ -706,7 +761,7 @@ function CounterPageInner() {
                         {thaiSyllables.map((ch, i) => <span key={i} style={{ color: thaiColors[i % thaiColors.length] }}>{ch}</span>)}
                       </motion.button>
                     </AnimatePresence>
-                    {burmese && <div className="mt-1 text-[18px] sm:text-[20px] font-semibold text-[#F5C542]">{burmese}</div>}
+                    {burmese && <div className="mt-1 text-[18px] sm:text-[20px] font-semibold text-[#60A5FA]">{burmese}</div>}
                   </div>
                   <div className="mt-3">
                     <div className="flex items-start justify-between">
@@ -729,7 +784,7 @@ function CounterPageInner() {
           times: [0, 0.2, 0.8, 1],
           ease: "easeOut"
         }}
-        className="font-black text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.8)] [text-shadow:0_0_10px_rgba(255,255,255,0.8),0_0_20px_rgba(255,122,0,0.9),0_0_30px_rgba(255,122,0,0.7)] text-[24px]"
+        className="font-black text-white drop-shadow-[0_0_12px_rgba(255,122,0,0.6)] text-[24px]"
       >
         <span className="text-[14px] mt-1 mr-0.5 font-black">+</span>
         {tapPopupText.replace('+', '')}
