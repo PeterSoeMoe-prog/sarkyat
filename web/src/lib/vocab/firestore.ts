@@ -346,3 +346,27 @@ export async function fetchFailedQuizIds(uid: string): Promise<string[]> {
   }
   return [];
 }
+
+export type UserContext = {
+  profession?: string;
+  interests?: string;
+  updatedAt?: unknown;
+};
+
+export async function saveUserContext(uid: string, context: UserContext): Promise<void> {
+  if (!uid) return;
+  const db = getFirebaseDb();
+  const ref = doc(db, "users", uid, "settings", "user_context");
+  await setDoc(ref, { ...context, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function fetchUserContext(uid: string): Promise<UserContext | null> {
+  if (!uid) return null;
+  const db = getFirebaseDb();
+  const ref = doc(db, "users", uid, "settings", "user_context");
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    return snap.data() as UserContext;
+  }
+  return null;
+}

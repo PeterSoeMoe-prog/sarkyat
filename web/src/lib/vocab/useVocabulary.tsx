@@ -27,8 +27,11 @@ import {
   fetchFailedQuizIds, 
   saveFailedQuizIds, 
   vocabCollectionPath,
+  fetchUserContext,
+  saveUserContext,
   type UserStudyGoals, 
-  type VocabLogic 
+  type VocabLogic,
+  type UserContext
 } from "@/lib/vocab/firestore";
 import { saveVocabToIndexedDB, getVocabFromIndexedDB } from "@/lib/vocab/indexeddb";
 import type { VocabularyEntry } from "@/lib/vocab/types";
@@ -119,6 +122,8 @@ export function useVocabulary() {
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [lastSavedGoals, setLastSavedGoals] = useState<{ dailyTarget: number; startingDate: string } | null>(null);
   const [authInitializing, setAuthInitializing] = useState(true);
+  const [userContext, setUserContext] = useState<UserContext | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
 
   useEffect(() => {
     if (!isFirebaseConfigured) {
@@ -199,9 +204,10 @@ export function useVocabulary() {
         }
 
         // Tier 2: Firestore Sync
-        const [goals, logic] = await Promise.all([
+        const [goals, logic, context] = await Promise.all([
           fetchStudyGoals(uid),
-          fetchVocabLogic(uid)
+          fetchVocabLogic(uid),
+          fetchUserContext(uid)
         ]);
 
         if (goals) {
@@ -228,6 +234,10 @@ export function useVocabulary() {
           localStorage.setItem("vocab_logic_consonants", logic.consonants || "");
           localStorage.setItem("vocab_logic_vowels", logic.vowels || "");
           localStorage.setItem("vocab_logic_tones", logic.tones || "");
+        }
+
+        if (context) {
+          setUserContext(context);
         }
       } catch (err) {
         console.error("Error fetching study goals/logic:", err);
@@ -324,6 +334,17 @@ export function useVocabulary() {
     }
   };
 
+  const updateUserContext = async (context: UserContext) => {
+    if (!uid) return;
+    setContextLoading(true);
+    try {
+      await saveUserContext(uid, context);
+      setUserContext(context);
+    } finally {
+      setContextLoading(false);
+    }
+  };
+
   const status: SyncStatus = loading ? "syncing" : "live";
   const isLive = !!uid && !isAnonymous && status === "live";
 
@@ -417,6 +438,9 @@ export function useVocabulary() {
       setXDate,
       vocabLogic,
       updateVocabLogic,
+      userContext,
+      updateUserContext,
+      contextLoading,
       failedIdsCount,
       failedIds
     }),
@@ -442,6 +466,8 @@ export function useVocabulary() {
       rule,
       xDate,
       vocabLogic,
+      userContext,
+      contextLoading,
       failedIdsCount,
       failedIds
     ]

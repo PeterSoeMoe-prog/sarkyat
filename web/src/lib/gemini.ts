@@ -135,3 +135,87 @@ export async function generateThaiExplanation(
     throw new Error(msg);
   }
 }
+
+export async function suggestVocabulary(
+  apiKey: string,
+  currentVocab: string[],
+  context: { profession?: string; interests?: string }
+): Promise<string> {
+  const key = (apiKey ?? "").trim();
+  if (!key) throw new Error("Missing API key");
+
+  const genAI = new GoogleGenerativeAI(key);
+  const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+
+  const prompt =
+    `You are a Thai language expert. Analyze the user's current vocabulary list and their personal context to suggest 5 NEW relevant Thai words or phrases.\n\n` +
+    `USER CONTEXT:\n` +
+    `Profession: ${context.profession || "Not specified"}\n` +
+    `Interests/Hobbies: ${context.interests || "Not specified"}\n\n` +
+    `CURRENT VOCABULARY (Avoid suggesting these):\n` +
+    `${currentVocab.join(", ")}\n\n` +
+    `STRICT OUTPUT FORMAT (JSON array only):\n` +
+    `[\n` +
+    `  {\n` +
+    `    "thai": "Thai word",\n` +
+    `    "burmese": "Burmese translation",\n` +
+    `    "category": "Short category name",\n` +
+    `    "reason": "Short reason why this is suggested based on context"\n` +
+    `  }\n` +
+    `]\n\n` +
+    `RULES:\n` +
+    `1) Suggest exactly 5 words.\n` +
+    `2) Suggestions must be highly relevant to the profession or interests.\n` +
+    `3) Output MUST be valid JSON and nothing else.\n` +
+    `4) Use Burmese for translations and reasons.\n` +
+    `5) STRICT RULE: ALWAYS USE ENGLISH FOR THE CATEGORY NAME (e.g., "History", "Travel", "Health"). DO NOT USE BURMESE FOR CATEGORIES.\n`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const text = result?.response?.text?.() ?? "";
+    const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    return cleaned;
+  } catch (e: unknown) {
+    const err = e as { message?: string };
+    throw new Error(err?.message || "AI Suggestion failed");
+  }
+}
+
+export async function detectDuplicates(
+  apiKey: string,
+  vocabItems: { id: string; thai: string; burmese?: string | null }[]
+): Promise<string> {
+  const key = (apiKey ?? "").trim();
+  if (!key) throw new Error("Missing API key");
+
+  const genAI = new GoogleGenerativeAI(key);
+  const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+
+  const prompt =
+    `You are a Thai language expert and data cleaner. Analyze the following vocabulary list and detect duplicate or highly similar entries (semantic duplicates).\n\n` +
+    `VOCABULARY LIST:\n` +
+    `${JSON.stringify(vocabItems.map(it => ({ id: it.id, thai: it.thai, burmese: it.burmese })))}\n\n` +
+    `STRICT OUTPUT FORMAT (JSON array only):\n` +
+    `[\n` +
+    `  {\n` +
+    `    "thai": "The duplicate Thai word",\n` +
+    `    "ids": ["id1", "id2"],\n` +
+    `    "reason": "Explanation in Burmese why these are considered duplicates"\n` +
+    `  }\n` +
+    `]\n\n` +
+    `RULES:\n` +
+    `1) Only include entries that are true duplicates or very similar in meaning/usage.\n` +
+    `2) If no duplicates are found, return an empty array [].\n` +
+    `3) Output MUST be valid JSON and nothing else.\n` +
+    `4) Use Burmese for the reason.\n`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const text = result?.response?.text?.() ?? "";
+    const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    return cleaned;
+  } catch (e: unknown) {
+    const err = e as { message?: string };
+    throw new Error(err?.message || "AI Duplicate detection failed");
+  }
+}
