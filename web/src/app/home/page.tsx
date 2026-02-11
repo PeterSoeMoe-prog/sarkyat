@@ -231,12 +231,12 @@ function CountUp({ value, className, style }: { value: number; className?: strin
 
     const timeout = setTimeout(() => {
       const controls = animate(prevValue.current, value, {
-        duration: 8, // 4x slower than original 2s
-        ease: "linear", // Linear makes the "ticking" speed constant and slower
+        duration: 5, // Capped at 5 seconds
+        ease: "easeOut", // Smooth animation
         onUpdate: (latest) => setDisplayValue(Math.floor(latest)),
       });
       return () => controls.stop();
-    }, 2000);
+    }, 0); // Start immediately
 
     return () => clearTimeout(timeout);
   }, [value]);

@@ -1024,9 +1024,9 @@ function CounterPageInner() {
                         router.push("/vocab");
                       }
                     }}
-                    className="w-full py-4 rounded-2xl bg-[#A855F7] text-white font-black text-lg shadow-[0_4px_20px_rgba(168,85,247,0.3)] active:scale-[0.98] transition-transform"
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#FF0080] via-[#7928CA] to-[#00DFD8] text-white font-black text-xl shadow-[0_0_20px_rgba(255,0,128,0.5),0_0_40px_rgba(121,40,202,0.3)] hover:shadow-[0_0_30px_rgba(255,0,128,0.7),0_0_60px_rgba(0,223,216,0.5)] active:scale-[0.96] transition-all duration-300 animate-pulse"
                   >
-                    Continue
+                    CONTINUE
                   </button>
                 </div>
               </motion.div>
@@ -1048,7 +1048,7 @@ function CounterPageInner() {
               </div>
               <div className="justify-self-end flex items-center gap-3">
                 <button onClick={() => setIsEditing(!isEditing)} className="text-[16px] font-semibold text-[#4FD2FF]">{isEditing ? "Cancel" : "Edit"}</button>
-                {!isEditing && <Link href="/" className="text-[20px] font-medium text-white/60">✕</Link>}
+                {!isEditing && <Link href="/" className="text-[32px] font-medium text-white/60 -mt-1 flex items-center justify-center w-10 h-10">✕</Link>}
               </div>
             </header>
 

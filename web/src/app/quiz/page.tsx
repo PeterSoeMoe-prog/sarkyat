@@ -32,6 +32,7 @@ export default function QuizPage() {
   const [dataReady, setDataReady] = useState(false);
   const correctAudioRef = useRef<HTMLAudioElement | null>(null);
   const wrongAudioRef = useRef<HTMLAudioElement | null>(null);
+  const congratsAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (!loading && items.length > 0) {
@@ -42,6 +43,8 @@ export default function QuizPage() {
   useEffect(() => {
     correctAudioRef.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3");
     wrongAudioRef.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2003/2003-preview.mp3");
+    congratsAudioRef.current = new Audio("/con.mp3");
+    congratsAudioRef.current.preload = "auto";
   }, []);
 
   const ttsBusy = useRef(false);
@@ -237,6 +240,11 @@ export default function QuizPage() {
         setCurrentIndex(prev => prev + 1);
       } else {
         setShowResult(true);
+        // Play con.mp3 when results are shown
+        if (congratsAudioRef.current) {
+          congratsAudioRef.current.currentTime = 0;
+          congratsAudioRef.current.play().catch(e => console.error("Congrats sound failed:", e));
+        }
         if (isCorrect && score + 1 >= 4) {
           confetti({
             particleCount: 150,

@@ -115,7 +115,7 @@ export default function SettingsPage() {
     if (!items || items.length === 0) return;
     
     // Create CSV header
-    const headers = ["Thai", "Burmese", "Category", "Count", "Status", "AI Explanation"];
+    const headers = ["Thai", "Burmese", "Category", "Count", "Status", "Composition", "Example"];
     
     // Convert items to CSV rows
     const rows = items.map(item => [
@@ -124,7 +124,8 @@ export default function SettingsPage() {
       `"${(item.category || "").toString().replace(/"/g, '""')}"`,
       item.count || 0,
       `"${(item.status || "").toString().replace(/"/g, '""')}"`,
-      `"${(item.ai_explanation || "").toString().replace(/"/g, '""')}"`
+      `"${(item.ai_composition || item.ai_explanation || "").toString().replace(/"/g, '""')}"`,
+      `"${(item.ai_sentence || "").toString().replace(/"/g, '""')}"`
     ]);
     
     const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
