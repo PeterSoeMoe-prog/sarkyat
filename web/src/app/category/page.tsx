@@ -5,7 +5,70 @@ import { motion, AnimatePresence } from "framer-motion";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { useMemo, useState } from "react";
 import { VocabularyEntry } from "@/lib/vocab/types";
-import { LucideX } from "lucide-react";
+import { LucideX, LucideTrash2 } from "lucide-react";
+import { useMotionValue, useTransform } from "framer-motion";
+import { deleteVocabulary } from "@/lib/vocab/firestore";
+
+function VocabItem({ it, primaryLanguage, onDelete, onClick }: { 
+  it: VocabularyEntry, 
+  primaryLanguage: string, 
+  onDelete: (id: string) => void,
+  onClick: () => void
+}) {
+  const x = useMotionValue(0);
+  const opacity = useTransform(x, [-100, -50, 0], [0, 1, 1]);
+  const deleteOpacity = useTransform(x, [-100, -50], [1, 0]);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDragEnd = (_: any, info: any) => {
+    if (info.offset.x < -80) {
+      setIsDeleting(true);
+      setTimeout(() => onDelete(it.id), 200);
+    } else {
+      x.set(0);
+    }
+  };
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl group">
+      <motion.div 
+        style={{ opacity: deleteOpacity }}
+        className="absolute inset-0 bg-[#FF4D6D] flex items-center justify-end px-6"
+      >
+        <LucideTrash2 size={24} className="text-white" />
+      </motion.div>
+
+      <motion.div
+        drag="x"
+        dragConstraints={{ left: -100, right: 0 }}
+        style={{ x }}
+        onDragEnd={handleDragEnd}
+        onClick={onClick}
+        animate={isDeleting ? { x: -400, opacity: 0 } : {}}
+        className="relative z-10 rounded-2xl bg-[#0A0B0F] border border-white/5 p-4 hover:bg-white/[0.08] transition-all cursor-pointer touch-pan-y"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="text-[17px] font-bold text-white tracking-tight mb-0.5 truncate">
+              {primaryLanguage === "Thai" ? it.thai : (it.burmese || "—")}
+            </div>
+            <div className="text-[13px] font-medium text-white/40 truncate">
+              {primaryLanguage === "Thai" ? (it.burmese || "—") : it.thai}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="px-3 py-1.5 rounded-xl bg-black/20 border border-white/5 min-w-[48px] text-center">
+              <span className="text-[14px] font-black text-[#2CE08B] tabular-nums">
+                {(it.count || 0).toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out pointer-events-none" />
+      </motion.div>
+    </div>
+  );
+}
 
 import Link from "next/link";
 
@@ -77,8 +140,18 @@ function CategoryCircle({ stats, isSelected, onClick }: { stats: CategoryStats, 
 
 function VocabList({ categoryName, items, onClose }: { categoryName: string, items: VocabularyEntry[], onClose: () => void }) {
   const router = useRouter();
+  const { uid } = useVocabulary();
   const [searchQuery, setSearchQuery] = useState("");
   const [primaryLanguage, setPrimaryLanguage] = useState<"Thai" | "Myanmar">("Thai");
+
+  const handleDelete = async (id: string) => {
+    if (!uid) return;
+    try {
+      await deleteVocabulary(uid, id);
+    } catch (err) {
+      console.error("Delete failed:", err);
+    }
+  };
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return items;
@@ -156,36 +229,14 @@ function VocabList({ categoryName, items, onClose }: { categoryName: string, ite
         {/* List */}
         <div className="flex-1 space-y-2 pb-20 overflow-y-auto no-scrollbar">
           <AnimatePresence mode="popLayout">
-            {filteredItems.map((it, idx) => (
-              <motion.div
+            {filteredItems.map((it) => (
+              <VocabItem
                 key={it.id}
-                layout
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ delay: idx * 0.02 }}
+                it={it}
+                primaryLanguage={primaryLanguage}
+                onDelete={handleDelete}
                 onClick={() => router.push(`/counter?id=${it.id}`)}
-                className="group relative rounded-2xl bg-white/5 border border-white/5 p-4 hover:bg-white/[0.08] transition-all overflow-hidden cursor-pointer"
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[17px] font-bold text-white tracking-tight mb-0.5 truncate">
-                      {primaryLanguage === "Thai" ? it.thai : (it.burmese || "—")}
-                    </div>
-                    <div className="text-[13px] font-medium text-white/40 truncate">
-                      {primaryLanguage === "Thai" ? (it.burmese || "—") : it.thai}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="px-3 py-1.5 rounded-xl bg-black/20 border border-white/5 min-w-[48px] text-center">
-                      <span className="text-[14px] font-black text-[#2CE08B] tabular-nums">
-                        {(it.count || 0).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out pointer-events-none" />
-              </motion.div>
+              />
             ))}
           </AnimatePresence>
 

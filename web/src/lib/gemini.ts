@@ -138,7 +138,7 @@ export async function generateThaiExplanation(
 
 export async function suggestVocabulary(
   apiKey: string,
-  currentVocab: string[],
+  currentVocab: { thai: string; category?: string }[],
   context: { profession?: string; interests?: string }
 ): Promise<string> {
   const key = (apiKey ?? "").trim();
@@ -147,19 +147,23 @@ export async function suggestVocabulary(
   const genAI = new GoogleGenerativeAI(key);
   const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
+  const existingCategories = Array.from(new Set(currentVocab.map(v => v.category?.trim() || "General"))).filter(Boolean);
+
   const prompt =
     `You are a Thai language expert. Analyze the user's current vocabulary list and their personal context to suggest 5 NEW relevant Thai words or phrases.\n\n` +
     `USER CONTEXT:\n` +
     `Profession: ${context.profession || "Not specified"}\n` +
     `Interests/Hobbies: ${context.interests || "Not specified"}\n\n` +
+    `EXISTING CATEGORIES (Strictly choose from these only):\n` +
+    `${existingCategories.join(", ")}\n\n` +
     `CURRENT VOCABULARY (Avoid suggesting these):\n` +
-    `${currentVocab.join(", ")}\n\n` +
+    `${currentVocab.map(v => v.thai).join(", ")}\n\n` +
     `STRICT OUTPUT FORMAT (JSON array only):\n` +
     `[\n` +
     `  {\n` +
     `    "thai": "Thai word",\n` +
     `    "burmese": "Burmese translation",\n` +
-    `    "category": "Short category name",\n` +
+    `    "category": "One of the EXISTING CATEGORIES listed above",\n` +
     `    "reason": "Short reason why this is suggested based on context"\n` +
     `  }\n` +
     `]\n\n` +
@@ -168,7 +172,7 @@ export async function suggestVocabulary(
     `2) Suggestions must be highly relevant to the profession or interests.\n` +
     `3) Output MUST be valid JSON and nothing else.\n` +
     `4) Use Burmese for translations and reasons.\n` +
-    `5) STRICT RULE: ALWAYS USE ENGLISH FOR THE CATEGORY NAME (e.g., "History", "Travel", "Health"). DO NOT USE BURMESE FOR CATEGORIES.\n`;
+    `5) STRICT RULE: YOU MUST ONLY USE THE CATEGORIES LISTED UNDER 'EXISTING CATEGORIES'. DO NOT CREATE NEW CATEGORY NAMES. IF NO GOOD MATCH EXISTS, USE 'General'.\n`;
 
   try {
     const result = await model.generateContent(prompt);

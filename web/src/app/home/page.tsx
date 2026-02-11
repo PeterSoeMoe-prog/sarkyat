@@ -1,8 +1,8 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useSpring, useTransform, animate } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
 import AuthScreen from "@/components/AuthScreen";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -218,6 +218,36 @@ function ProgressRing({
   );
 }
 
+function CountUp({ value, className, style }: { value: number; className?: string; style?: any }) {
+  const [displayValue, setDisplayValue] = useState(value);
+  const prevValue = useRef(value);
+
+  useEffect(() => {
+    // Determine a sensible start value (e.g., 90% of target or target - 50)
+    // For large numbers, starting from 0 is too fast.
+    const startValue = value > 100 ? Math.floor(value * 0.98) : 0;
+    setDisplayValue(startValue);
+    prevValue.current = startValue;
+
+    const timeout = setTimeout(() => {
+      const controls = animate(prevValue.current, value, {
+        duration: 8, // 4x slower than original 2s
+        ease: "linear", // Linear makes the "ticking" speed constant and slower
+        onUpdate: (latest) => setDisplayValue(Math.floor(latest)),
+      });
+      return () => controls.stop();
+    }, 2000);
+
+    return () => clearTimeout(timeout);
+  }, [value]);
+
+  return (
+    <motion.div className={className} style={style}>
+      {displayValue.toLocaleString()}
+    </motion.div>
+  );
+}
+
 export default function HomePage() {
   const { 
     items, 
@@ -372,19 +402,23 @@ export default function HomePage() {
                 <motion.button
                   whileTap={{ scale: 0.9 }}
                   onClick={() => router.push("/vocab?mode=add")}
-                  className="flex items-center justify-center h-[38px] w-[38px] rounded-full bg-white/10 border-2 border-white/20 shadow-[0_0_15px_rgba(255,255,255,0.1)] active:bg-white/20 transition-all group backdrop-blur-md"
+                  className="flex items-center justify-center h-[44px] w-[44px] transition-all group"
                 >
-                  <span className="text-[24px] font-black text-white leading-none mb-0.5">+</span>
+                  <span className="text-[42px] font-black leading-none mb-1 transition-all bg-gradient-to-br from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent drop-shadow-[0_0_12px_rgba(179,107,255,0.9)] group-active:drop-shadow-[0_0_20px_rgba(179,107,255,1)]">+</span>
                 </motion.button>
               </div>
-              <div className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent pointer-events-none">
-                Sar Kyat Pro
-              </div>
-              <div className="absolute right-0 flex items-center gap-3">
-                <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#2CE08B]/10 border border-[#2CE08B]/20">
-                  <div className="h-1.5 w-1.5 rounded-full bg-[#2CE08B] animate-pulse shadow-[0_0_8px_#2CE08B]" />
-                  <span className="text-[10px] font-black text-[#2CE08B] uppercase tracking-widest">LIVE</span>
+              <div className="flex flex-col items-center justify-center">
+                <div className="relative">
+                  <div className="text-[34px] font-bold tracking-tighter bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent pointer-events-none">
+                    Sar Kyat Pro
+                  </div>
+                  <div className="absolute -top-1 -right-8 flex items-center gap-1 opacity-80">
+                    <div className="h-1.5 w-1.5 rounded-full bg-[#2CE08B] animate-pulse shadow-[0_0_8px_#2CE08B]" />
+                    <span className="text-[10px] font-black text-[#2CE08B] uppercase tracking-widest">LIVE</span>
+                  </div>
                 </div>
+              </div>
+              <div className="absolute right-0 flex items-center gap-2">
                 {failedIdsCount > 0 && (
                   <motion.button
                     whileTap={{ scale: 0.9 }}
@@ -414,11 +448,17 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Card System */}
+              {/* Card System */}
             <div className="mt-4 relative rounded-3xl border border-white/10 bg-white/5 p-1 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
-              <div className="absolute top-3 left-0 right-0 flex items-center justify-center gap-2 z-20 pointer-events-none">
-                <div className={`h-[6px] w-[6px] rounded-full transition-all duration-300 ${activeCardIndex === 0 ? 'bg-white/70 w-3' : 'bg-white/30'}`} />
-                <div className={`h-[6px] w-[6px] rounded-full transition-all duration-300 ${activeCardIndex === 1 ? 'bg-white/70 w-3' : 'bg-white/30'}`} />
+              <div className="absolute top-3 left-0 right-0 flex items-center justify-center gap-2 z-20">
+                <button 
+                  onClick={() => setActiveCardIndex(0)}
+                  className={`h-[6px] rounded-full transition-all duration-300 cursor-pointer ${activeCardIndex === 0 ? 'bg-white/70 w-3' : 'bg-white/30 w-[6px]'}`} 
+                />
+                <button 
+                  onClick={() => setActiveCardIndex(1)}
+                  className={`h-[6px] rounded-full transition-all duration-300 cursor-pointer ${activeCardIndex === 1 ? 'bg-white/70 w-3' : 'bg-white/30 w-[6px]'}`} 
+                />
               </div>
 
               <div className="relative overflow-hidden">
@@ -451,15 +491,6 @@ export default function HomePage() {
                             WebkitBackgroundClip: "text",
                             backgroundClip: "text",
                             color: "transparent",
-                          }}
-                          animate={{
-                            backgroundPosition: ["200% 0%", "-200% 0%"],
-                          }}
-                          transition={{
-                            duration: 5,
-                            repeat: Infinity,
-                            ease: "linear",
-                            repeatDelay: 2
                           }}
                         >
                           {loading || !isAuthed ? "—" : hitsFor.toLocaleString()}
@@ -497,7 +528,7 @@ export default function HomePage() {
                           onClick={() => router.push("/counter")}
                           className={btnBase + " bg-gradient-to-r from-[#FF4D94] via-[#FF4D6D] to-[#FF7A00] !py-3 !px-2 !text-[13px] shadow-none"}
                         >
-                          Start Study
+                          Resume
                         </motion.button>
                         <motion.button
                           type="button"
@@ -513,7 +544,7 @@ export default function HomePage() {
                         type="button"
                         whileTap={{ scale: 0.98 }}
                         onClick={() => router.push("/ai-plus")}
-                        className={btnBase + " mt-3 bg-white/5 border border-white/10 !py-3.5 !text-[15px] font-black text-white/80 shadow-none hover:bg-white/10 transition-colors"}
+                        className={btnBase + " mt-6 bg-white/5 border border-white/10 !py-3.5 !text-[15px] font-black text-white/80 shadow-none hover:bg-white/10 transition-colors"}
                       >
                         <span className="bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">AI+ Vocabs</span>
                       </motion.button>
@@ -521,10 +552,10 @@ export default function HomePage() {
                       <motion.button
                         type="button"
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => router.push("/audio-notes")}
+                        onClick={() => router.push("/pages")}
                         className={btnBase + " mt-2 bg-white/5 border border-white/10 !py-3.5 !text-[15px] font-black text-white/80 shadow-none hover:bg-white/10 transition-colors"}
                       >
-                        <span className="bg-gradient-to-r from-[#2CE08B] to-[#49D2FF] bg-clip-text text-transparent">Audio Notes</span>
+                        <span className="bg-gradient-to-r from-[#2CE08B] to-[#49D2FF] bg-clip-text text-transparent">Pages</span>
                       </motion.button>
                     </div>
                   </div>
@@ -634,11 +665,12 @@ export default function HomePage() {
 
             <div className="mt-8 relative rounded-3xl border border-white/10 bg-white/5 p-1 backdrop-blur-xl shadow-[0_25px_80px_rgba(0,0,0,0.35)] overflow-hidden">
               {/* Pagination Dots */}
-              <div className="absolute top-3 left-0 right-0 flex items-center justify-center gap-2 z-20 pointer-events-none">
+              <div className="absolute top-3 left-0 right-0 flex items-center justify-center gap-2 z-20">
                 {[0, 1, 2, 3].map((idx) => (
-                  <div 
+                  <button 
                     key={idx}
-                    className={`h-[6px] rounded-full transition-all duration-300 ${bottomCardIndex === idx ? 'bg-white/70 w-3' : 'bg-white/30 w-[6px]'}`} 
+                    onClick={() => setBottomCardIndex(idx)}
+                    className={`h-[6px] rounded-full transition-all duration-300 cursor-pointer ${bottomCardIndex === idx ? 'bg-white/70 w-3' : 'bg-white/30 w-[6px]'}`} 
                   />
                 ))}
               </div>
@@ -662,20 +694,20 @@ export default function HomePage() {
                   {/* Bottom Card 1: Total Vocab Counts */}
                   <div className="w-full shrink-0 px-5 py-6">
                     <div className="text-center text-[14px] font-semibold text-white/40 mb-2">Total Vocab Counts</div>
-                    <div
-                      className="text-center bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] via-[#FF4D6D] to-[#FFB020] bg-clip-text text-transparent text-[42px] sm:text-[64px] font-semibold leading-none tracking-[-0.03em] whitespace-nowrap overflow-hidden text-ellipsis"
+                    <CountUp
+                      value={loading || !isAuthed ? 0 : totalVocabCounts}
+                      className="text-center bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] via-[#FF4D6D] to-[#FFB020] bg-clip-text text-transparent text-[42px] sm:text-[64px] font-semibold leading-none tracking-[-0.02em] whitespace-nowrap overflow-hidden text-ellipsis"
                       style={{ filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.20))" }}
-                    >
-                      {loading || !isAuthed ? "—" : totalVocabCounts.toLocaleString()}
-                    </div>
+                    />
                   </div>
 
                   {/* Bottom Card 2: To Hit (iOS Mirror) */}
                   <div className="w-full shrink-0 px-5 py-6">
                     <div className="text-center text-[14px] font-semibold text-white/40 mb-2 uppercase tracking-widest">To Hit</div>
-                    <div className="text-center bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 bg-clip-text text-transparent text-[52px] sm:text-[64px] font-black leading-none tracking-tight">
-                      {backfillingState?.dailyTarget ? Math.max(0, backfillingState.dailyTarget - (backfillingState.currentDayProgress || 0)).toLocaleString() : "—"}
-                    </div>
+                    <CountUp
+                      value={!backfillingState?.dailyTarget ? 0 : Math.max(0, backfillingState.dailyTarget - (backfillingState.currentDayProgress || 0))}
+                      className="text-center bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 bg-clip-text text-transparent text-[52px] sm:text-[64px] font-black leading-none tracking-tight"
+                    />
                     <div className="mt-2 text-center text-[12px] font-medium text-white/20 uppercase tracking-widest">
                       For {dateText}
                     </div>
@@ -685,9 +717,10 @@ export default function HomePage() {
                   <div className="w-full shrink-0 px-5 py-6">
                     <div className="text-center text-[14px] font-semibold text-white/40 mb-2 uppercase tracking-widest">Today Hits</div>
                     <div className="flex items-center justify-center gap-4">
-                      <div className="bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 bg-clip-text text-transparent text-[52px] sm:text-[64px] font-black leading-none tracking-tight">
-                        {(backfillingState?.currentDayProgress || 0).toLocaleString()}
-                      </div>
+                      <CountUp
+                        value={backfillingState?.currentDayProgress || 0}
+                        className="bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 bg-clip-text text-transparent text-[52px] sm:text-[64px] font-black leading-none tracking-tight"
+                      />
                     </div>
                     <div className="mt-2 text-center text-[12px] font-medium text-white/20 uppercase tracking-widest">
                       Lifetime: {totalVocabCounts.toLocaleString()}

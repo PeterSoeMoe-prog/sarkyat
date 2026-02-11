@@ -48,7 +48,7 @@ function AiPlusContent() {
     
     setIsGenerating(true);
     try {
-      const currentVocab = items.map(it => it.thai);
+      const currentVocab = items.map(it => ({ thai: it.thai, category: it.category ?? undefined }));
       const context = {
         profession: userContext?.profession,
         interests: userContext?.interests
