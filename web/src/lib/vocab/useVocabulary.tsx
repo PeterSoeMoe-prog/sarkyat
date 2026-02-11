@@ -105,13 +105,6 @@ export function useVocabulary() {
     return null;
   });
   const [aiKeyLoading, setAiKeyLoading] = useState(false);
-  const [userDailyGoal, setUserDailyGoal] = useState<number | null>(() => {
-    if (typeof window !== "undefined") {
-      const local = localStorage.getItem("userDailyGoal");
-      return local ? parseInt(local, 10) : null;
-    }
-    return null;
-  });
   const [startingDate, setStartingDate] = useState<string>(() => {
     if (typeof window !== "undefined") {
       const local = localStorage.getItem("startingDate");
@@ -120,7 +113,6 @@ export function useVocabulary() {
     return DEFAULT_STARTING_DATE;
   });
   const [goalsLoading, setGoalsLoading] = useState(false);
-  const [lastSavedGoals, setLastSavedGoals] = useState<{ dailyTarget: number; startingDate: string } | null>(null);
   const [authInitializing, setAuthInitializing] = useState(true);
   const [userContext, setUserContext] = useState<UserContext | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
@@ -182,10 +174,6 @@ export function useVocabulary() {
       setGoalsLoading(true);
       try {
         // Tier 1: Local Storage (Instant)
-        const localGoal = localStorage.getItem("userDailyGoal");
-        if (localGoal) {
-          setUserDailyGoal(parseInt(localGoal, 10));
-        }
         const localDate = localStorage.getItem("startingDate");
         if (localDate) {
           setStartingDate(localDate);
@@ -211,10 +199,6 @@ export function useVocabulary() {
         ]);
 
         if (goals) {
-          if (goals.userDailyGoal) {
-            setUserDailyGoal(goals.userDailyGoal);
-            localStorage.setItem("userDailyGoal", goals.userDailyGoal.toString());
-          }
           if (goals.startingDate) {
             setStartingDate(goals.startingDate);
             localStorage.setItem("startingDate", goals.startingDate);
@@ -248,7 +232,7 @@ export function useVocabulary() {
 
     // Clean up generic keys once to remove remnants
     const cleanupRemnants = () => {
-      const keysToClear = ["dailyTarget", "manual_daily_target"];
+      const keysToClear = ["dailyTarget", "manual_daily_target", "userDailyGoal"];
       keysToClear.forEach(k => {
         if (localStorage.getItem(k)) {
           console.log(`Cleaning up stale localStorage key: ${k}`);
@@ -363,14 +347,14 @@ export function useVocabulary() {
         clearedDaysCount: 0,
         currentDayProgress: 0,
         currentTargetDate: fallback.toISOString().split('T')[0],
-        dailyTarget: userDailyGoal
+        dailyTarget: typeof rule === "number" ? rule : 500,
       };
     }
     
     start.setHours(0, 0, 0, 0);
     
     const totalHits = totalVocabCounts;
-    const target = userDailyGoal !== null ? userDailyGoal : 500; // Final safety fallback for calculation only
+    const target = typeof rule === "number" ? rule : 500; // Single source of truth for compute
     
     // Prevent Division by Zero or NaN
     const clearedDaysCount = target > 0 ? Math.floor(totalHits / target) : 0;
@@ -385,7 +369,7 @@ export function useVocabulary() {
       currentTargetDate: currentTargetDate.toISOString().split('T')[0],
       dailyTarget: target
     };
-  }, [totalVocabCounts, startingDate, userDailyGoal]);
+  }, [totalVocabCounts, startingDate, rule]);
 
   useEffect(() => {
     if (!uid) {
@@ -426,7 +410,6 @@ export function useVocabulary() {
       aiApiKey,
       aiKeyLoading,
       updateAiApiKey,
-      userDailyGoal,
       startingDate,
       goalsLoading,
       authInitializing,
@@ -457,7 +440,6 @@ export function useVocabulary() {
       vocabError,
       aiApiKey,
       aiKeyLoading,
-      userDailyGoal,
       startingDate,
       goalsLoading,
       authInitializing,

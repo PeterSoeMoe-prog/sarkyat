@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "migrate:queue-to-drill": "node scripts/migrate-queue-to-drill.js",
+    "migrate:queue-to-drill:dry": "node scripts/migrate-queue-to-drill.js --dry-run"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
@@ -14,6 +16,7 @@
     "@types/react-window": "^1.8.8",
     "canvas-confetti": "^1.9.4",
     "firebase": "^12.8.0",
+    "firebase-admin": "^12.7.0",
     "framer-motion": "^12.31.0",
     "idb": "^8.0.3",
     "lottie-react": "^2.4.1",

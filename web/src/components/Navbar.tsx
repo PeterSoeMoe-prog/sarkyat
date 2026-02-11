@@ -28,7 +28,7 @@ export function Navbar() {
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 pb-[env(safe-area-inset-bottom)]">
       <div className="mx-auto w-full max-w-md px-4">
-        <nav className="mb-3 rounded-[32px] bg-black/40 backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+        <nav className="mb-3 rounded-[32px] bg-black/55 backdrop-blur-xl border border-white/10 shadow-[0_12px_40px_rgba(0,0,0,0.5)]">
           <div className="grid grid-cols-5 px-1">
             {items.map((it) => {
               const active = isActive(it.href);

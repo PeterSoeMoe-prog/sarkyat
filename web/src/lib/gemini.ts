@@ -145,7 +145,7 @@ export async function suggestVocabulary(
   if (!key) throw new Error("Missing API key");
 
   const genAI = new GoogleGenerativeAI(key);
-  const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-8b" });
 
   const existingCategories = Array.from(new Set(currentVocab.map(v => v.category?.trim() || "General"))).filter(Boolean);
 

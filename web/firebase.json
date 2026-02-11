@@ -17,6 +17,10 @@
       {
         "source": "/api/tts/**",
         "function": "tts"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
       }
     ],
     "headers": [

@@ -1,3 +1,22 @@
+export type BookEntry = {
+  id: string;
+  name: string;
+  writer?: string;
+  createdAt: number;
+};
+
+export type BookSession = {
+  id: string;
+  bookId: string;
+  name: string;
+  createdAt: number;
+  note?: string;
+  order?: number;
+  status?: SessionStatus;
+};
+
+export type SessionStatus = "drill" | "ready";
+
 export type VocabularyStatus = "queue" | "drill" | "ready";
 
 export type VocabularyEntry = {

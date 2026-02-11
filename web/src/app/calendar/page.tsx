@@ -21,7 +21,7 @@ function CalendarMonth({
   month, 
   startDay = DEFAULT_STARTING_DATE, 
   historyData, 
-  userDailyGoal, 
+  dailyTarget, 
   earliestMissDate, 
   earliestSuccessRef,
   onDateClick,
@@ -31,7 +31,7 @@ function CalendarMonth({
   month: number; 
   startDay?: string; 
   historyData: Record<string, number>; 
-  userDailyGoal: number;
+  dailyTarget: number;
   earliestMissDate: string | null;
   earliestSuccessRef: React.RefObject<HTMLButtonElement | null>;
   onDateClick: (date: string, count: number, isTarget: boolean) => void;
@@ -63,7 +63,7 @@ function CalendarMonth({
     const isCleared = dayIndex >= 0 && dayIndex < backfillingState?.clearedDaysCount;
     const isFuture = currentDay > today || dayIndex < 0;
     
-    const displayCount = isCleared ? userDailyGoal : (isTargetDate ? backfillingState.currentDayProgress : 0);
+    const displayCount = isCleared ? dailyTarget : (isTargetDate ? backfillingState.currentDayProgress : 0);
 
     days.push(
       <button 
@@ -103,8 +103,9 @@ function CalendarMonth({
 }
 
 export default function CalendarPage() {
-  const { xDate: cloudXDate, goalsLoading, items, userDailyGoal, backfillingState, rule } = useVocabulary();
+  const { xDate: cloudXDate, goalsLoading, items, backfillingState, rule } = useVocabulary();
   const startingDate = cloudXDate || DEFAULT_STARTING_DATE;
+  const dailyTarget = typeof rule === "number" ? rule : 500;
   const [hasMounted, setHasMounted] = useState(false);
   const earliestSuccessRef = useRef<HTMLButtonElement | null>(null);
   
@@ -168,7 +169,7 @@ export default function CalendarPage() {
     today.setHours(0, 0, 0, 0);
 
     let current = new Date(start);
-    const target = userDailyGoal ?? 500;
+    const target = dailyTarget;
     for (let d = 0; d < 365; d++) {
       const iso = current.toISOString().split('T')[0];
       const count = historyData[iso] || 0;
@@ -178,7 +179,7 @@ export default function CalendarPage() {
       current.setDate(current.getDate() + 1);
     }
     return null;
-  }, [historyData, startingDate, userDailyGoal]);
+  }, [historyData, startingDate, dailyTarget]);
 
   useEffect(() => {
     setHasMounted(true);
@@ -260,7 +261,7 @@ export default function CalendarPage() {
                     month={m.month} 
                     startDay={startingDate} 
                     historyData={historyData}
-                    userDailyGoal={userDailyGoal ?? 500}
+                    dailyTarget={dailyTarget}
                     earliestMissDate={earliestMissDate}
                     earliestSuccessRef={earliestSuccessRef}
                     onDateClick={(date, count, isTarget) => setSelectedDate({ date, count, isTarget })}

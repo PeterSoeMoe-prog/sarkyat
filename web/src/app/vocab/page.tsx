@@ -2,7 +2,7 @@
 
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
 import { VocabularyEntry, VocabularyStatus } from "@/lib/vocab/types";
-import { useState, useMemo, Suspense, useEffect } from "react";
+import { useState, useMemo, Suspense, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -10,6 +10,7 @@ import { upsertVocabulary, deleteVocabulary } from "@/lib/vocab/firestore";
 import { LucidePlus, LucideX, LucideTrash2 } from "lucide-react";
 
 type SortOption = "Recent" | "Count";
+const LIST_PAGE_SIZE = 120;
 
 function VocabItem({ it, primaryLanguage, uid, onDelete, onClick }: { 
   it: VocabularyEntry, 
@@ -19,7 +20,6 @@ function VocabItem({ it, primaryLanguage, uid, onDelete, onClick }: {
   onClick: () => void
 }) {
   const x = useMotionValue(0);
-  const opacity = useTransform(x, [-100, -50, 0], [0, 1, 1]);
   const deleteOpacity = useTransform(x, [-100, -50], [1, 0]);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -103,12 +103,14 @@ function VocabContent() {
   const [sortBy, setSortBy] = useState<SortOption>("Recent");
   const [sortOrder, setSortByOrder] = useState<"asc" | "desc">("desc");
   const [primaryLanguage, setPrimaryLanguage] = useState<"Thai" | "Myanmar">("Thai");
+  const [visibleCount, setVisibleCount] = useState(LIST_PAGE_SIZE);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   const [isAdding, setIsAdding] = useState(false);
   const [newThai, setNewThai] = useState("");
   const [newBurmese, setNewBurmese] = useState("");
   const [newCategory, setNewCategory] = useState("");
-  const [newStatus, setNewStatus] = useState<VocabularyStatus>("queue");
+  const [newStatus, setNewStatus] = useState<VocabularyStatus>("drill");
   const [isSaving, setIsSaving] = useState(false);
 
   const mode = searchParams.get("mode");
@@ -182,6 +184,18 @@ function VocabContent() {
     return result;
   }, [items, searchQuery, sortBy, sortOrder, categoryFilter]);
 
+  useEffect(() => {
+    setVisibleCount(LIST_PAGE_SIZE);
+    if (listRef.current) {
+      listRef.current.scrollTop = 0;
+    }
+  }, [searchQuery, sortBy, sortOrder, categoryFilter, primaryLanguage, items.length]);
+
+  const visibleItems = useMemo(
+    () => filteredAndSortedItems.slice(0, visibleCount),
+    [filteredAndSortedItems, visibleCount]
+  );
+
   if (loading && items.length === 0) {
     return (
       <div className="min-h-screen bg-[#0A0B0F] flex items-center justify-center">
@@ -251,7 +265,7 @@ function VocabContent() {
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-black uppercase tracking-widest text-white/30 ml-1">Status</label>
                   <div className="flex gap-2">
-                    {(["queue", "drill", "ready"] as const).map((s) => (
+                    {(["drill", "ready"] as const).map((s) => (
                       <button
                         key={s}
                         type="button"
@@ -262,7 +276,7 @@ function VocabContent() {
                             : "bg-white/5 border-white/10 opacity-40 hover:opacity-100"
                         }`}
                       >
-                        {s === "ready" ? "💎" : s === "queue" ? "😮" : "🔥"}
+                        {s === "ready" ? "💎" : "🔥"}
                       </button>
                     ))}
                   </div>
@@ -365,9 +379,19 @@ function VocabContent() {
       </header>
 
       {/* List */}
-      <div className="flex-1 space-y-2 pb-20 overflow-y-auto no-scrollbar">
+      <div
+        ref={listRef}
+        className="flex-1 space-y-2 pb-20 overflow-y-auto no-scrollbar"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 320;
+          if (!nearBottom) return;
+          if (visibleCount >= filteredAndSortedItems.length) return;
+          setVisibleCount((prev) => Math.min(prev + LIST_PAGE_SIZE, filteredAndSortedItems.length));
+        }}
+      >
         <AnimatePresence mode="popLayout">
-          {filteredAndSortedItems.map((it) => (
+          {visibleItems.map((it) => (
             <VocabItem
               key={it.id}
               it={it}
@@ -378,6 +402,12 @@ function VocabContent() {
             />
           ))}
         </AnimatePresence>
+
+        {visibleCount < filteredAndSortedItems.length && (
+          <div className="py-4 text-center text-[12px] font-bold text-white/35 tracking-wide">
+            Loading more vocabs...
+          </div>
+        )}
 
         {filteredAndSortedItems.length === 0 && (
           <div className="py-20 text-center">

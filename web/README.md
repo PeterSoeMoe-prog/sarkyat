@@ -71,6 +71,27 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## One-time Queue -> Drill Migration
+
+For bulk status updates, use the built-in script that targets Firebase project `sar-kyat` using your Firebase CLI login token (no service-account JSON required):
+
+```bash
+# Dry run for one user
+npm run migrate:queue-to-drill:dry -- --uids=<uid>
+
+# Execute for one or multiple users
+npm run migrate:queue-to-drill -- --uids=<uid1,uid2>
+
+# Dry run for all users
+npm run migrate:queue-to-drill:dry -- --all-users
+```
+
+If needed, login first:
+
+```bash
+firebase login
+```
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

@@ -218,9 +218,26 @@ function ProgressRing({
   );
 }
 
-function CountUp({ value, className, style }: { value: number; className?: string; style?: any }) {
+function CountUp({
+  value,
+  className,
+  style,
+  autoFit = false,
+  maxFontSize = 78,
+  minFontSize = 42,
+}: {
+  value: number;
+  className?: string;
+  style?: any;
+  autoFit?: boolean;
+  maxFontSize?: number;
+  minFontSize?: number;
+}) {
   const [displayValue, setDisplayValue] = useState(value);
   const prevValue = useRef(value);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const textRef = useRef<HTMLDivElement | null>(null);
+  const [fitFontSize, setFitFontSize] = useState(maxFontSize);
 
   useEffect(() => {
     // Determine a sensible start value (e.g., 90% of target or target - 50)
@@ -231,7 +248,7 @@ function CountUp({ value, className, style }: { value: number; className?: strin
 
     const timeout = setTimeout(() => {
       const controls = animate(prevValue.current, value, {
-        duration: 5, // Capped at 5 seconds
+        duration: 3, // Capped at 3 seconds
         ease: "easeOut", // Smooth animation
         onUpdate: (latest) => setDisplayValue(Math.floor(latest)),
       });
@@ -241,10 +258,43 @@ function CountUp({ value, className, style }: { value: number; className?: strin
     return () => clearTimeout(timeout);
   }, [value]);
 
+  useEffect(() => {
+    if (!autoFit) return;
+    const wrapper = wrapperRef.current;
+    const textEl = textRef.current;
+    if (!wrapper || !textEl) return;
+
+    const fit = () => {
+      const available = wrapper.clientWidth;
+      let nextSize = maxFontSize;
+      textEl.style.fontSize = `${nextSize}px`;
+
+      while (nextSize > minFontSize && textEl.scrollWidth > available) {
+        nextSize -= 1;
+        textEl.style.fontSize = `${nextSize}px`;
+      }
+      setFitFontSize(nextSize);
+    };
+
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(wrapper);
+    return () => ro.disconnect();
+  }, [autoFit, maxFontSize, minFontSize, displayValue]);
+
   return (
-    <motion.div className={className} style={style}>
-      {displayValue.toLocaleString()}
-    </motion.div>
+    <div ref={wrapperRef} className="w-full">
+      <motion.div
+        ref={textRef}
+        className={className}
+        style={{
+          ...style,
+          ...(autoFit ? { fontSize: `${fitFontSize}px` } : {}),
+        }}
+      >
+        {displayValue.toLocaleString()}
+      </motion.div>
+    </div>
   );
 }
 
@@ -252,7 +302,6 @@ export default function HomePage() {
   const { 
     items, 
     loading, 
-    userDailyGoal, 
     authInitializing, 
     uid,
     aiKeyLoading,
@@ -410,8 +459,10 @@ export default function HomePage() {
   const hitsFor = backfillingState?.currentDayProgress ?? 0;
 
   const legend = {
-    queue: { count: statusCounts.queue, pct: allTotal > 0 ? Math.round((statusCounts.queue / allTotal) * 100) : 0 },
-    drill: { count: statusCounts.drill, pct: allTotal > 0 ? Math.round((statusCounts.drill / allTotal) * 100) : 0 },
+    drill: {
+      count: statusCounts.drill + statusCounts.queue,
+      pct: allTotal > 0 ? Math.round(((statusCounts.drill + statusCounts.queue) / allTotal) * 100) : 0
+    },
     ready: { count: statusCounts.ready, pct: allTotal > 0 ? Math.round((statusCounts.ready / allTotal) * 100) : 0 },
   };
 
@@ -659,15 +710,6 @@ export default function HomePage() {
                 <div className="space-y-3 text-[14px] font-semibold text-white/80">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                      <span className="h-[10px] w-[10px] rounded-full bg-[#FF4D6D]" />
-                      <span>Queue</span>
-                    </div>
-                    <span className="tabular-nums">
-                      {legend.queue.count.toLocaleString()} ({legend.queue.pct}%)
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
                       <span className="h-[10px] w-[10px] rounded-full bg-[#FFB020]" />
                       <span>Drill</span>
                     </div>
@@ -727,7 +769,10 @@ export default function HomePage() {
                     <div className="text-center text-[14px] font-semibold text-white/40 mb-2">Total Vocab Counts</div>
                     <CountUp
                       value={loading || !isAuthed ? 0 : totalVocabCounts}
-                      className="text-center bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] via-[#FF4D6D] to-[#FFB020] bg-clip-text text-transparent text-[42px] sm:text-[64px] font-semibold leading-none tracking-[-0.02em] whitespace-nowrap overflow-hidden text-ellipsis"
+                      className="text-center bg-gradient-to-r from-[#49D2FF] via-[#B36BFF] via-[#FF4D6D] to-[#FFB020] bg-clip-text text-transparent font-semibold font-mono tabular-nums leading-none tracking-[-0.02em] whitespace-nowrap"
+                      autoFit
+                      maxFontSize={78}
+                      minFontSize={42}
                       style={{ filter: "drop-shadow(0 18px 45px rgba(255,80,150,0.20))" }}
                     />
                   </div>

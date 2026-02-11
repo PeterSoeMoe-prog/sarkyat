@@ -10,7 +10,7 @@ import confetti from "canvas-confetti";
 import { Suspense, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
-import { fetchAiApiKey, upsertVocabulary, vocabCollectionPath } from "@/lib/vocab/firestore";
+import { fetchAiApiKey, upsertVocabulary, updateAiExplanation, vocabCollectionPath } from "@/lib/vocab/firestore";
 import type { VocabularyEntry } from "@/lib/vocab/types";
 import { generateThaiExplanation } from "@/lib/gemini";
 import { parseThaiWord, CharBreakdown } from "@/lib/vocab/thaiParser";
@@ -65,7 +65,7 @@ function CounterPageInner() {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const m = months[currentTargetDate.getMonth()] ?? "";
     return `${m} ${currentTargetDate.getDate()}, ${currentTargetDate.getFullYear()}`;
-  }, [currentTargetDate]);
+  }, [currentTargetDate.getTime()]); // Use getTime() for more stable memoization
 
   const [activeTargetCard, setActiveTargetCard] = useState(0);
   const [showCongrats, setShowCongrats] = useState(false);
@@ -151,9 +151,15 @@ function CounterPageInner() {
 
   useEffect(() => {
     if (current) {
-      setCount(Number.isFinite(Number(current.count)) ? Number(current.count) : 0);
+      const val = Number.isFinite(Number(current.count)) ? Number(current.count) : 0;
+      setCount(prev => {
+        if (prev !== val) {
+          return val;
+        }
+        return prev;
+      });
     }
-  }, [current]);
+  }, [current?.id, current?.count]);
 
   const [countBusy, setCountBusy] = useState(false);
   const [soundLevel, setSoundLevel] = useState<0 | 1 | 2>(1);
@@ -373,6 +379,7 @@ function CounterPageInner() {
   const popAudioRef = useRef<HTMLAudioElement | null>(null);
   const warningAudioRef = useRef<HTMLAudioElement | null>(null);
   const congratsAudioRef = useRef<HTMLAudioElement | null>(null);
+  const hundredAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const cycleTapMode = () => {
     const order: Array<"max" | "3" | "10" | "off"> = ["off", "10", "3", "max"];
@@ -425,11 +432,26 @@ function CounterPageInner() {
       congratsAudioRef.current = new Audio("/con.mp3");
       congratsAudioRef.current.preload = "auto";
       congratsAudioRef.current.load();
+
+      hundredAudioRef.current = new Audio("/100.mp3");
+      hundredAudioRef.current.preload = "auto";
+      hundredAudioRef.current.load();
     }
   }, []);
 
   const effectiveCount = optimisticCount ?? count;
-  const statusIcon = status === "ready" ? "💎" : status === "queue" ? "😮" : "🔥";
+  const prevEffectiveCountRef = useRef(effectiveCount);
+
+  useEffect(() => {
+    if (prevEffectiveCountRef.current !== effectiveCount) {
+      console.log(`[PERF] effectiveCount changed: ${prevEffectiveCountRef.current} -> ${effectiveCount}`);
+      prevEffectiveCountRef.current = effectiveCount;
+    }
+  }, [effectiveCount]);
+  const statusIcon = useMemo(
+    () => (status === "ready" ? "💎" : "🔥"),
+    [status]
+  );
 
   const cycleStatus = async () => {
     if (!isAuthed || !uid || !current || statusBusy) return;
@@ -449,7 +471,7 @@ function CounterPageInner() {
     }
 
     const cur = (current.status ?? "queue").toString();
-    const next = cur === "queue" ? "drill" : cur === "drill" ? "ready" : "queue";
+    const next = cur === "ready" ? "drill" : "ready";
     setOptimisticStatus(next);
     setStatusBusy(true);
     try {
@@ -534,6 +556,21 @@ function CounterPageInner() {
     if (!isAuthed || !uid || !current || countBusy) return;
     const base = Number.isFinite(Number(current.count)) ? Number(current.count) : 0;
     const next = base + incrementStep;
+
+    // Play 100.mp3 when count passes each 100 milestone (100, 200, 300, ...).
+    if (Math.floor(base / 100) < Math.floor(next / 100)) {
+      try {
+        const audio = hundredAudioRef.current;
+        if (audio) {
+          audio.currentTime = 0;
+          audio.volume = soundLevel === 0 ? 0.5 : soundLevel === 2 ? 1 : 0.65;
+          void audio.play();
+        }
+      } catch (err) {
+        console.error("Failed to play 100.mp3:", err);
+      }
+    }
+
     setOptimisticCount(next);
     setCountBusy(true);
     try {
@@ -683,10 +720,13 @@ function CounterPageInner() {
       // Fallback for old data without tags
       if (!comp && !sent) {
         const lines = text.split("\n").filter(l => l.trim());
-        const compositionLines = lines.filter(l => !l.startsWith("ဝါကျ -"));
-        const sentenceLines = lines.filter(l => l.startsWith("ဝါကျ -"));
+        // Identify composition lines: any line that doesn't start with "ဝါကျ" or its variations
+        const compositionLines = lines.filter(l => !l.startsWith("ဝါကျ") && !l.includes("ဝါကျ -"));
+        // Identify sentence lines: lines that start with "ဝါကျ" or follow a composition block
+        const sentenceLines = lines.filter(l => l.startsWith("ဝါကျ") || l.includes("ဝါကျ -"));
+        
         comp = compositionLines.join("\n");
-        sent = sentenceLines.map(l => l.replace(/^ဝါကျ\s*-\s*/, '').trim()).join("\n");
+        sent = sentenceLines.map(l => l.replace(/^ဝါကျ\s*-\s*/, '').replace(/^ဝါကျ\s*/, '').trim()).join("\n");
       }
     }
 
@@ -855,18 +895,14 @@ function CounterPageInner() {
       const newComp = compMatch ? compMatch[1].trim() : "";
       const newSent = sentMatch ? sentMatch[1].trim() : "";
 
-      // If refreshing a specific part, merge with existing
-      // IMPORTANT: Use latest count and status from local state to avoid resets
-      const updatedEntry: VocabularyEntry = {
-        ...current,
-        count: effectiveCount,
-        status: (optimisticStatus ?? status) as any,
-        ai_composition: refreshPart === 'sentence' ? current.ai_composition : newComp,
-        ai_sentence: refreshPart === 'composition' ? current.ai_sentence : newSent,
-        ai_explanation: null // Move away from combined field
+      // IMPORTANT: Use partial update strategy to avoid overwriting existing fields (like count)
+      const payload = {
+        ai_composition: refreshPart === 'sentence' ? (current.ai_composition || null) : newComp,
+        ai_sentence: refreshPart === 'composition' ? (current.ai_sentence || null) : newSent,
+        ai_explanation: null as string | null // Explicitly clear old combined field
       };
-
-      await upsertVocabulary(uid, updatedEntry);
+      await updateAiExplanation(uid, current.id, payload);
+      
       setAiDraft(null); // No draft needed if we save immediately
     } catch (err: any) {
       setAiError(err.message || "AI Request error");
@@ -953,8 +989,8 @@ function CounterPageInner() {
   const showAiExplain = current?.ai_composition || current?.ai_sentence || current?.ai_explanation || (current?.id && aiDismissedId !== current.id && (aiBusy || aiError || aiDraft));
 
   return (
-    <div className="min-h-screen bg-[#0A0B0F] text-white">
-      <div className="min-h-screen">
+    <div className="min-h-screen bg-[#0A0B0F] text-white flex flex-col pt-[env(safe-area-inset-top)]">
+      <div className="min-h-screen flex flex-col">
         <AnimatePresence>
           {showCongrats && (
             <motion.div
@@ -1034,16 +1070,32 @@ function CounterPageInner() {
           )}
         </AnimatePresence>
 
-        <div className="mx-auto w-full max-w-md px-4 pt-4 pb-4 min-h-[100dvh] flex flex-col">
-          <div className="origin-top flex-1 min-h-0 flex flex-col">
-            <header className="grid grid-cols-3 items-center">
+        <div className="mx-auto w-full max-w-md px-4 pt-2 pb-4 min-h-[100dvh] flex flex-col relative overflow-hidden">
+          <div className="origin-top flex-1 min-h-0 flex flex-col relative z-10">
+            <header className="grid grid-cols-3 items-center min-h-[44px]">
               <div className="justify-self-start">
                 <button type="button" disabled={!isAuthed || !current} onClick={() => { if (isAuthed && current) router.push("/category?cat=" + encodeURIComponent(categoryName) + "&from=counter&id=" + encodeURIComponent(current.id)); }} className={"text-[16px] font-semibold text-white/85 " + (!isAuthed || !current ? "opacity-60" : "opacity-100")}>{categoryName} {isAuthed && <span className="text-white/70">({categoryTotals.notReady}/{Math.max(1, categoryTotals.total)})</span>}</button>
               </div>
               <div className="justify-self-center">
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={openGoogleImages} className="h-[34px] w-[34px] rounded-full border-2 border-white/80 bg-[#2CE08B] flex items-center justify-center text-[12px] font-semibold active:scale-95 transition-transform">G</button>
-                  <button type="button" onClick={openGoogleTranslate} className="h-[34px] w-[34px] rounded-full border-2 border-white/80 bg-[#FF4D94] flex items-center justify-center text-[12px] font-semibold active:scale-95 transition-transform">T</button>
+                  <button
+                    type="button"
+                    onClick={openGoogleImages}
+                    className="h-[36px] px-2.5 rounded-xl border border-white/15 bg-white/5 backdrop-blur-md flex items-center justify-center active:scale-95 transition-all shadow-[0_8px_20px_rgba(0,0,0,0.3)]"
+                  >
+                    <span className="text-[11px] font-black tracking-wide bg-gradient-to-r from-[#2CE08B] to-[#49D2FF] bg-clip-text text-transparent">
+                      IMG
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openGoogleTranslate}
+                    className="h-[36px] px-2.5 rounded-xl border border-white/15 bg-white/5 backdrop-blur-md flex items-center justify-center active:scale-95 transition-all shadow-[0_8px_20px_rgba(0,0,0,0.3)]"
+                  >
+                    <span className="text-[11px] font-black tracking-wide bg-gradient-to-r from-[#FF4D6D] to-[#B36BFF] bg-clip-text text-transparent">
+                      TRN
+                    </span>
+                  </button>
                 </div>
               </div>
               <div className="justify-self-end flex items-center gap-3">
@@ -1062,7 +1114,7 @@ function CounterPageInner() {
                       <div className="space-y-1"><label className="text-[11px] font-bold uppercase text-white/40 ml-1">Category</label><input value={editCategory} onChange={(e) => setEditCategory(e.target.value)} list="category-suggestions" className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-[15px]" /><datalist id="category-suggestions">{allCategories.map(c => <option key={c} value={c} />)}</datalist></div>
                       <div className="space-y-1"><label className="text-[11px] font-bold uppercase text-white/40 ml-1">Count</label><input type="number" value={editCount} onChange={(e) => setEditCount(Number(e.target.value))} className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-[15px]" /></div>
                     </div>
-                    <div className="space-y-1"><label className="text-[11px] font-bold uppercase text-white/40 ml-1">Status</label><div className="flex gap-2 mb-2">{(["queue", "drill", "ready"] as const).map(s => <button key={s} onClick={() => setEditStatus(s)} className={"flex-1 py-3 rounded-xl border " + (editStatus === s ? "bg-white/20 border-white/40" : "bg-white/5 border-white/10")}><span className="text-[28px]">{s === "ready" ? "💎" : s === "queue" ? "😮" : "🔥"}</span></button>)}</div></div>
+                    <div className="space-y-1"><label className="text-[11px] font-bold uppercase text-white/40 ml-1">Status</label><div className="flex gap-2 mb-2">{(["drill", "ready"] as const).map(s => <button key={s} onClick={() => setEditStatus(s)} className={"flex-1 py-3 rounded-xl border " + (editStatus === s ? "bg-white/20 border-white/40" : "bg-white/5 border-white/10")}><span className="text-[28px]">{s === "ready" ? "💎" : "🔥"}</span></button>)}</div></div>
                     <button onClick={saveEdits} disabled={statusBusy} className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#60A5FA] to-[#B36BFF] text-white font-black text-[16px]">{statusBusy ? "Saving..." : "Save Changes"}</button>
                   </div>
                 </div>
@@ -1079,7 +1131,7 @@ function CounterPageInner() {
                   <div className="mt-3">
                     <div className="flex items-start justify-between">
                       <button type="button" onClick={() => void cycleStatus()} disabled={statusBusy} className={"flex h-[86px] w-[86px] items-center justify-center text-[64px] transition-all active:scale-95 " + (statusBusy ? "opacity-55" : "opacity-100")}>{statusIcon}</button>
-                      <div className="flex-1 text-center -mt-[0px]"><div className="inline-flex items-start gap-2"><motion.div key={effectiveCount} initial={{ scale: 1 }} animate={pulseKey > 0 ? { scale: [1, 1.15, 1] } : {}} className="bg-gradient-to-r from-[#60A5FA] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[65px] sm:text-[76px] font-black leading-none mt-[10px]">{effectiveCount.toLocaleString()}{tapPopupText && (
+                      <div className="flex-1 text-center -mt-[0px]"><div className="inline-flex items-start gap-2"><motion.div key={effectiveCount} initial={{ scale: 1 }} animate={pulseKey > 0 ? { scale: [1, 1.15, 1] } : {}} className="bg-gradient-to-r from-[#60A5FA] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[65px] sm:text-[76px] md:text-[61px] font-black leading-none mt-[10px]">{effectiveCount.toLocaleString()}{tapPopupText && (
   <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50">
     <AnimatePresence mode="popLayout">
       <motion.div 
@@ -1126,8 +1178,24 @@ function CounterPageInner() {
                     </div>
                     <div className="relative -mt-14 sm:-mt-16 flex items-center justify-center">
                       <div className="relative w-full max-w-[300px]">
-                        <motion.div className="relative w-full aspect-square rounded-full border-[6px] border-white/90 overflow-hidden shadow-[0_0_80px_rgba(96,165,250,0.5)]" onClick={handleCircleTap} style={{ background: "conic-gradient(from 0deg, #00F2FF, #006AFF, #7000FF, #FF00C8, #FF0032, #FF8A00, #00F2FF)" }} whileTap={{ scale: 0.94 }}>
-                          <motion.div className="absolute inset-0" animate={{ rotate: [0, 360] }} transition={{ duration: 4, repeat: Infinity, ease: "linear" }} style={{ background: "conic-gradient(from 0deg, transparent, rgba(255,255,255,0.5), transparent)" }} />
+                        <motion.div 
+                          className="relative w-full aspect-square rounded-full border-[6px] border-white/90 overflow-hidden shadow-[0_0_40px_rgba(96,165,250,0.3)]" 
+                          onClick={handleCircleTap} 
+                          style={{ 
+                            background: "conic-gradient(from 0deg, #00F2FF, #006AFF, #7000FF, #FF00C8, #FF0032, #FF8A00, #00F2FF)",
+                            willChange: "transform"
+                          }} 
+                          whileTap={{ scale: 0.96 }}
+                        >
+                          <motion.div 
+                            className="absolute inset-0" 
+                            animate={{ rotate: [0, 360] }} 
+                            transition={{ duration: 8, repeat: Infinity, ease: "linear" }} 
+                            style={{ 
+                              background: "conic-gradient(from 0deg, transparent, rgba(255,255,255,0.3), transparent)",
+                              willChange: "transform"
+                            }} 
+                          />
                           <div className="absolute inset-0 rounded-full bg-black/10 backdrop-blur-[2px]" />
                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[100]">
                             <div className="w-[120px] h-[120px] scale-x-[-1] flex items-center justify-center">
@@ -1152,8 +1220,8 @@ function CounterPageInner() {
                         <div className="absolute bottom-[5px] right-[5px] z-30"><button type="button" onClick={(e) => { e.stopPropagation(); if (isAuthed && current && !countBusy) decrementCount(); }} className="h-[72px] w-[72px] sm:h-[82px] sm:w-[82px] rounded-full border-4 border-white/90 bg-gradient-to-br from-[#FF4D6D] to-[#FF7A00] flex items-center justify-center text-[30px] sm:text-[36px] font-black text-white">↓</button></div>
                       </div>
                     </div>
-                    <div className="mt-auto pt-5">
-                      <div className="relative rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] overflow-hidden">
+                    <div className="mt-auto pt-5 relative z-10">
+                      <div className="relative rounded-3xl border border-white/10 bg-black/20 shadow-[0_10px_30px_rgba(0,0,0,0.3)] overflow-hidden">
                         {/* Pagination Dots */}
                         <div className="absolute top-2 left-0 right-0 flex items-center justify-center gap-1.5 z-20 pointer-events-none">
                           {[0, 1, 2].map((idx) => (
@@ -1164,7 +1232,7 @@ function CounterPageInner() {
                           ))}
                         </div>
 
-                        <div className="relative overflow-hidden h-[85px]">
+                        <div className="relative overflow-hidden h-[85px] md:h-[95px]">
                           <div 
                             className="flex transition-transform duration-500 ease-out h-full"
                             style={{ transform: `translateX(-${activeTargetCard * 100}%)` }}

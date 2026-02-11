@@ -12,6 +12,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
   where,
   writeBatch,
   type FirestoreError,
@@ -20,7 +21,8 @@ import {
 } from "firebase/firestore";
 
 import { getFirebaseDb } from "@/lib/firebase/client";
-import type { VocabularyEntry, VocabularyStatus } from "@/lib/vocab/types";
+import type { VocabularyEntry, VocabularyStatus, BookEntry, BookSession, SessionStatus } from "@/lib/vocab/types";
+import { DEFAULT_STARTING_DATE } from "@/lib/constants";
 
 type VocabDoc = {
   id: string;
@@ -59,15 +61,17 @@ function asMillis(ts: unknown): number {
 }
 
 function normalizeDoc(data: VocabDoc): VocabularyEntry {
+  const count = Number.isFinite(Number(data.count))
+    ? Number(data.count)
+    : Number.isFinite(Number(data.hit))
+      ? Number(data.hit)
+      : 0;
+  
   return {
     id: data.id,
     thai: data.thai ?? "",
     burmese: data.burmese ?? null,
-    count: Number.isFinite(Number(data.count))
-      ? Number(data.count)
-      : Number.isFinite(Number(data.hit))
-        ? Number(data.hit)
-        : 0,
+    count,
     status: (data.status ?? "queue") as VocabularyStatus,
     category: data.category ?? null,
     updatedAt: asMillis(data.updatedAt),
@@ -106,53 +110,76 @@ export async function fetchAiApiKey(uid: string): Promise<string | null> {
  * Study Goals Storage
  */
 export type UserStudyGoals = {
-  startingDate: string;
-  userDailyGoal?: number;
+  startingDate?: string;
   rule?: number;
   xDate?: string;
 };
 
+function normalizeGoalDate(raw: unknown): string {
+  if (typeof raw !== "string") return DEFAULT_STARTING_DATE;
+  const value = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const dmy = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (dmy) {
+    const [, dd, mm, yyyy] = dmy;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return DEFAULT_STARTING_DATE;
+}
+
+function normalizeGoalsDoc(data: Record<string, unknown> | undefined): UserStudyGoals | null {
+  if (!data) return null;
+  const startingDateRaw = data.startingDate;
+  const hasDate = startingDateRaw !== undefined && startingDateRaw !== null;
+  const hasRule = data.rule !== undefined && data.rule !== null;
+  const hasXDate = data.xDate !== undefined && data.xDate !== null;
+  if (!hasDate && !hasRule && !hasXDate) return null;
+
+  return {
+    startingDate: hasDate ? normalizeGoalDate(startingDateRaw) : undefined,
+    rule: data.rule !== undefined ? Number(data.rule) : undefined,
+    xDate: data.xDate !== undefined ? normalizeGoalDate(data.xDate) : undefined,
+  };
+}
+
 export async function saveStudyGoals(uid: string, goals: UserStudyGoals): Promise<void> {
   if (!uid) return;
   const db = getFirebaseDb();
+  const normalizedStartingDate =
+    goals.startingDate !== undefined ? normalizeGoalDate(goals.startingDate) : undefined;
+
   // Fixed path to sub-document for goals
   const goalRef = doc(db, "users", uid, "settings", "goals");
-  await setDoc(goalRef, goals, { merge: true });
+  await setDoc(
+    goalRef,
+    {
+      ...(normalizedStartingDate !== undefined ? { startingDate: normalizedStartingDate } : {}),
+      ...(goals.rule !== undefined ? { rule: Number(goals.rule) } : {}),
+      ...(goals.xDate !== undefined ? { xDate: normalizeGoalDate(goals.xDate) } : {}),
+    },
+    { merge: true }
+  );
 }
 
 export async function fetchStudyGoals(uid: string): Promise<UserStudyGoals | null> {
   if (!uid) return null;
   const db = getFirebaseDb();
-  const userRef = doc(db, "users", uid, "settings", "goals");
+  const goalsRef = doc(db, "users", uid, "settings", "goals");
   
   try {
-    // FORCE SERVER SOURCE to prevent stale cache fallbacks
-    const snap = await getDocFromServer(userRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      if (data.userDailyGoal !== undefined && data.startingDate !== undefined) {
-        return {
-          userDailyGoal: Number(data.userDailyGoal),
-          startingDate: String(data.startingDate),
-          rule: data.rule !== undefined ? Number(data.rule) : undefined,
-          xDate: data.xDate !== undefined ? String(data.xDate) : undefined,
-        };
-      }
+    // Single source of truth: users/{uid}/settings/goals.
+    const goalsSnap = await getDocFromServer(goalsRef);
+    const normalizedGoals = normalizeGoalsDoc(goalsSnap.exists() ? goalsSnap.data() : undefined);
+    if (normalizedGoals) {
+      return normalizedGoals;
     }
   } catch (error) {
     console.error("Error fetching study goals from server:", error);
-    // Fallback to cache if server is unavailable
-    const snap = await getDoc(userRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      if (data.userDailyGoal !== undefined && data.startingDate !== undefined) {
-        return {
-          userDailyGoal: Number(data.userDailyGoal),
-          startingDate: String(data.startingDate),
-          rule: data.rule !== undefined ? Number(data.rule) : undefined,
-          xDate: data.xDate !== undefined ? String(data.xDate) : undefined,
-        };
-      }
+    // Fallback to cache if server is unavailable.
+    const goalsSnap = await getDoc(goalsRef);
+    const normalizedGoals = normalizeGoalsDoc(goalsSnap.exists() ? goalsSnap.data() : undefined);
+    if (normalizedGoals) {
+      return normalizedGoals;
     }
   }
   return null;
@@ -189,6 +216,170 @@ export function listenVocabulary(
   );
 }
 
+export function booksCollectionPath(uid: string) {
+  return `users/${uid}/books`;
+}
+
+export async function saveBook(uid: string, book: Omit<BookEntry, "createdAt">) {
+  const db = getFirebaseDb();
+  const ref = doc(db, booksCollectionPath(uid), book.id);
+  await setDoc(ref, {
+    ...book,
+    createdAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export function listenBooks(
+  uid: string,
+  onData: (books: BookEntry[]) => void,
+  onError?: (err: FirestoreError) => void
+): Unsubscribe {
+  const db = getFirebaseDb();
+  const col = collection(db, booksCollectionPath(uid));
+  const q = query(col, orderBy("createdAt", "desc"));
+
+  return onSnapshot(
+    q,
+    (snap: QuerySnapshot) => {
+      const books = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: data.name ?? "",
+          writer: data.writer ?? "",
+          createdAt: asMillis(data.createdAt),
+        } as BookEntry;
+      });
+      onData(books);
+    },
+    (err) => onError?.(err)
+  );
+}
+
+export async function deleteBook(uid: string, bookId: string) {
+  const db = getFirebaseDb();
+  const ref = doc(db, booksCollectionPath(uid), bookId);
+  await deleteDoc(ref);
+}
+
+export async function updateBook(
+  uid: string,
+  bookId: string,
+  data: { name?: string; writer?: string }
+) {
+  const db = getFirebaseDb();
+  const ref = doc(db, booksCollectionPath(uid), bookId);
+  await updateDoc(ref, {
+    ...(data.name !== undefined ? { name: data.name } : {}),
+    ...(data.writer !== undefined ? { writer: data.writer } : {}),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export function sessionsCollectionPath(uid: string, bookId: string) {
+  return `users/${uid}/books/${bookId}/sessions`;
+}
+
+export async function saveSession(uid: string, bookId: string, session: Omit<BookSession, "createdAt">) {
+  const db = getFirebaseDb();
+  const ref = doc(db, sessionsCollectionPath(uid, bookId), session.id);
+  const note = session.note ? String(session.note).slice(0, 1000) : undefined;
+  const order = Number.isFinite(session.order) ? Number(session.order) : undefined;
+  const status: SessionStatus = session.status === "ready" ? "ready" : "drill";
+  await setDoc(ref, {
+    ...session,
+    ...(note !== undefined ? { note } : {}),
+    ...(order !== undefined ? { order } : {}),
+    status,
+    createdAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export function listenSessions(
+  uid: string,
+  bookId: string,
+  onData: (sessions: BookSession[]) => void,
+  onError?: (err: FirestoreError) => void
+): Unsubscribe {
+  const db = getFirebaseDb();
+  const col = collection(db, sessionsCollectionPath(uid, bookId));
+  const q = query(col, orderBy("createdAt", "desc"));
+
+  return onSnapshot(
+    q,
+    (snap: QuerySnapshot) => {
+      const sessions = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          bookId: data.bookId,
+          name: data.name ?? "",
+          note: typeof data.note === "string" ? data.note : undefined,
+          order: Number.isFinite(Number(data.order)) ? Number(data.order) : undefined,
+          status: data.status === "ready" ? "ready" : "drill",
+          createdAt: asMillis(data.createdAt),
+        } as BookSession;
+      });
+      onData(sessions);
+    },
+    (err) => onError?.(err)
+  );
+}
+
+export async function deleteSession(uid: string, bookId: string, sessionId: string) {
+  const db = getFirebaseDb();
+  const ref = doc(db, sessionsCollectionPath(uid, bookId), sessionId);
+  await deleteDoc(ref);
+}
+
+export async function fetchSession(uid: string, bookId: string, sessionId: string): Promise<BookSession | null> {
+  const db = getFirebaseDb();
+  const ref = doc(db, sessionsCollectionPath(uid, bookId), sessionId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  return {
+    id: snap.id,
+    bookId: data.bookId,
+    name: data.name ?? "",
+    note: typeof data.note === "string" ? data.note : undefined,
+    order: Number.isFinite(Number(data.order)) ? Number(data.order) : undefined,
+    status: data.status === "ready" ? "ready" : "drill",
+    createdAt: asMillis(data.createdAt),
+  } as BookSession;
+}
+
+export async function updateSession(
+  uid: string,
+  bookId: string,
+  sessionId: string,
+  data: { name?: string; note?: string; order?: number; status?: SessionStatus }
+) {
+  const db = getFirebaseDb();
+  const ref = doc(db, sessionsCollectionPath(uid, bookId), sessionId);
+  const payload: Record<string, unknown> = {};
+  if (data.name !== undefined) payload.name = data.name;
+  if (data.note !== undefined) payload.note = typeof data.note === "string" ? data.note.slice(0, 1000) : data.note;
+  if (data.order !== undefined && Number.isFinite(data.order)) payload.order = data.order;
+  if (data.status !== undefined) payload.status = data.status === "ready" ? "ready" : "drill";
+  payload.updatedAt = serverTimestamp();
+  await updateDoc(ref, payload);
+}
+
+export async function fetchBook(uid: string, bookId: string): Promise<BookEntry | null> {
+  const db = getFirebaseDb();
+  const ref = doc(db, booksCollectionPath(uid), bookId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  return {
+    id: snap.id,
+    name: data.name ?? "",
+    writer: data.writer ?? "",
+    createdAt: asMillis(data.createdAt),
+  } as BookEntry;
+}
+
 export async function upsertVocabulary(uid: string, entry: VocabularyEntry) {
   const db = getFirebaseDb();
   const ref = doc(db, vocabCollectionPath(uid), entry.id);
@@ -206,6 +397,15 @@ export async function upsertVocabulary(uid: string, entry: VocabularyEntry) {
   };
 
   await setDoc(ref, payload, { merge: true });
+}
+
+export async function updateAiExplanation(uid: string, vocabId: string, payload: { ai_composition?: string | null, ai_sentence?: string | null, ai_explanation?: string | null }) {
+  const db = getFirebaseDb();
+  const ref = doc(db, vocabCollectionPath(uid), vocabId);
+  await updateDoc(ref, {
+    ...payload,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function deleteVocabulary(uid: string, id: string) {
