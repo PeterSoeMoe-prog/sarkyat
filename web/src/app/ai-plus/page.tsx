@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
 import { useState, useMemo } from "react";
-import { LucideBrain, LucidePlus, LucideSettings, LucideRefreshCcw, LucideChevronLeft, LucideUser, LucideSparkles, LucideInfo } from "lucide-react";
+import { LucideBrain, LucidePlus, LucideRefreshCcw, LucideChevronLeft, LucideSparkles, LucideInfo, LucideTag } from "lucide-react";
 import { upsertVocabulary, deleteVocabulary } from "@/lib/vocab/firestore";
 import { suggestVocabulary, detectDuplicates } from "@/lib/gemini";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -24,21 +24,19 @@ interface DuplicateGroup {
 
 function AiPlusContent() {
   const router = useRouter();
-  const { items, uid, userContext, updateUserContext, contextLoading, aiApiKey } = useVocabulary();
+  const { items, uid, aiApiKey } = useVocabulary();
   
   const [activeTab, setActiveTab] = useState<"suggest" | "clean">("suggest");
   const [isGenerating, setIsGenerating] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([]);
-  const [showSettings, setShowSettings] = useState(false);
-  
-  const [profession, setProfession] = useState(userContext?.profession || "");
-  const [interests, setInterests] = useState(userContext?.interests || "");
-
-  const handleSaveContext = async () => {
-    await updateUserContext({ profession, interests });
-    setShowSettings(false);
-  };
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const categories = useMemo(() => {
+    const unique = Array.from(
+      new Set(items.map((it) => (it.category?.trim() ? it.category.trim() : "General")))
+    ).filter(Boolean);
+    return ["All", ...unique];
+  }, [items]);
 
   const generateSuggestions = async () => {
     if (!aiApiKey) {
@@ -49,12 +47,9 @@ function AiPlusContent() {
     setIsGenerating(true);
     try {
       const currentVocab = items.map(it => ({ thai: it.thai, category: it.category ?? undefined }));
-      const context = {
-        profession: userContext?.profession,
-        interests: userContext?.interests
-      };
+      const focusCategory = selectedCategory !== "All" ? selectedCategory : undefined;
       
-      const responseText = await suggestVocabulary(aiApiKey, currentVocab, context);
+      const responseText = await suggestVocabulary(aiApiKey, currentVocab, {}, focusCategory);
       const suggestedData = JSON.parse(responseText);
       
       if (Array.isArray(suggestedData)) {
@@ -134,9 +129,7 @@ function AiPlusContent() {
             </div>
             <h1 className="text-[18px] font-black tracking-tight">AI Vocabs+</h1>
           </div>
-          <button onClick={() => setShowSettings(!showSettings)} className="h-10 w-10 flex items-center justify-center rounded-full bg-white/5 active:scale-95 transition-all">
-            <LucideSettings size={20} />
-          </button>
+          <div className="h-10 w-10" />
         </div>
       </header>
 
@@ -165,34 +158,43 @@ function AiPlusContent() {
       <main className="p-4 space-y-6 max-w-md mx-auto pb-64">
         {activeTab === "suggest" ? (
           <>
-            {/* User Context Card */}
+            {/* Category Focus Card */}
             <section className="bg-white/5 border border-white/10 rounded-3xl p-5 space-y-4">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-2xl bg-white/5 flex items-center justify-center text-[#49D2FF]">
-                  <LucideUser size={20} />
+                  <LucideTag size={20} />
                 </div>
                 <div>
-                  <h2 className="text-[15px] font-bold">Personal Context</h2>
-                  <p className="text-[12px] text-white/40">Tailor your suggestions</p>
+                  <h2 className="text-[15px] font-bold">Category Focus</h2>
+                  <p className="text-[12px] text-white/40">AI suggests vocab from your selected category</p>
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-black/20 rounded-2xl p-3 border border-white/5">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-white/20 block mb-1">Profession</span>
-                  <span className="text-[14px] font-medium text-white/80 truncate block">{userContext?.profession || "Not set"}</span>
-                </div>
-                <div className="bg-black/20 rounded-2xl p-3 border border-white/5">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-white/20 block mb-1">Interests</span>
-                  <span className="text-[14px] font-medium text-white/80 truncate block">{userContext?.interests || "Not set"}</span>
-                </div>
+              <div className="flex flex-wrap gap-2">
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`px-3 py-2 rounded-xl text-[12px] font-black border transition-all ${
+                      selectedCategory === cat
+                        ? "bg-[#B36BFF]/20 border-[#B36BFF]/40 text-[#D1A4FF]"
+                        : "bg-black/20 border-white/10 text-white/50"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
               </div>
-
-              <button 
-                onClick={() => setShowSettings(true)}
-                className="w-full py-3 rounded-2xl bg-[#B36BFF]/10 text-[#B36BFF] text-[13px] font-bold hover:bg-[#B36BFF]/20 transition-all"
+              <p className="text-[11px] text-white/30">
+                No text input needed. Current focus: <span className="font-bold text-white/60">{selectedCategory}</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => setSelectedCategory("All")}
+                className="w-full py-3 rounded-2xl bg-white/5 border border-white/10 text-white/70 text-[13px] font-bold hover:bg-white/10 transition-all"
               >
-                Update Context
+                Reset to All Categories
               </button>
             </section>
 
@@ -211,7 +213,7 @@ function AiPlusContent() {
               ) : (
                 <>
                   <LucideBrain size={20} />
-                  <span>Generate New Vocabs</span>
+                  <span>Generate by Category</span>
                 </>
               )}
             </button>
@@ -351,63 +353,6 @@ function AiPlusContent() {
           </>
         )}
       </main>
-
-      {/* Settings Modal */}
-      <AnimatePresence>
-        {showSettings && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-4"
-          >
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              className="w-full max-w-md bg-[#16171D] border border-white/10 rounded-t-[40px] sm:rounded-[40px] p-8 space-y-6 shadow-2xl"
-            >
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-black">Personal Context</h2>
-                <button onClick={() => setShowSettings(false)} className="h-10 w-10 flex items-center justify-center rounded-full bg-white/5 text-white/40 hover:text-white transition-all">
-                  ✕
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[11px] font-black uppercase tracking-widest text-white/30 ml-2">Your Profession</label>
-                  <input
-                    type="text"
-                    value={profession}
-                    onChange={(e) => setProfession(e.target.value)}
-                    placeholder="e.g. Tour Guide, Software Engineer..."
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-[16px] focus:border-[#B36BFF]/50 outline-none transition-all placeholder:text-white/10"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-black uppercase tracking-widest text-white/30 ml-2">Interests / Hobbies</label>
-                  <textarea
-                    rows={3}
-                    value={interests}
-                    onChange={(e) => setInterests(e.target.value)}
-                    placeholder="e.g. History, Cooking, Reading books..."
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-[16px] focus:border-[#B36BFF]/50 outline-none transition-all resize-none placeholder:text-white/10"
-                  />
-                </div>
-              </div>
-
-              <button
-                disabled={contextLoading}
-                onClick={handleSaveContext}
-                className="w-full py-5 rounded-2xl bg-white text-black font-black text-[16px] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-              >
-                {contextLoading ? <LucideRefreshCcw className="animate-spin" size={20} /> : "Save Profile"}
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

@@ -139,7 +139,8 @@ export async function generateThaiExplanation(
 export async function suggestVocabulary(
   apiKey: string,
   currentVocab: { thai: string; category?: string }[],
-  context: { profession?: string; interests?: string }
+  context: { profession?: string; interests?: string },
+  focusCategory?: string
 ): Promise<string> {
   const key = (apiKey ?? "").trim();
   if (!key) throw new Error("Missing API key");
@@ -148,12 +149,18 @@ export async function suggestVocabulary(
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-8b" });
 
   const existingCategories = Array.from(new Set(currentVocab.map(v => v.category?.trim() || "General"))).filter(Boolean);
+  const normalizedFocusCategory = (focusCategory ?? "").trim();
+  const validFocusCategory = normalizedFocusCategory && existingCategories.includes(normalizedFocusCategory)
+    ? normalizedFocusCategory
+    : "";
 
   const prompt =
     `You are a Thai language expert. Analyze the user's current vocabulary list and their personal context to suggest 5 NEW relevant Thai words or phrases.\n\n` +
     `USER CONTEXT:\n` +
     `Profession: ${context.profession || "Not specified"}\n` +
     `Interests/Hobbies: ${context.interests || "Not specified"}\n\n` +
+    `FOCUS CATEGORY:\n` +
+    `${validFocusCategory || "Not specified"}\n\n` +
     `EXISTING CATEGORIES (Strictly choose from these only):\n` +
     `${existingCategories.join(", ")}\n\n` +
     `CURRENT VOCABULARY (Avoid suggesting these):\n` +
@@ -170,9 +177,10 @@ export async function suggestVocabulary(
     `RULES:\n` +
     `1) Suggest exactly 5 words.\n` +
     `2) Suggestions must be highly relevant to the profession or interests.\n` +
-    `3) Output MUST be valid JSON and nothing else.\n` +
-    `4) Use Burmese for translations and reasons.\n` +
-    `5) STRICT RULE: YOU MUST ONLY USE THE CATEGORIES LISTED UNDER 'EXISTING CATEGORIES'. DO NOT CREATE NEW CATEGORY NAMES. IF NO GOOD MATCH EXISTS, USE 'General'.\n`;
+    `3) If FOCUS CATEGORY is provided, all 5 suggestions MUST use exactly that category name.\n` +
+    `4) Output MUST be valid JSON and nothing else.\n` +
+    `5) Use Burmese for translations and reasons.\n` +
+    `6) STRICT RULE: YOU MUST ONLY USE THE CATEGORIES LISTED UNDER 'EXISTING CATEGORIES'. DO NOT CREATE NEW CATEGORY NAMES. IF NO GOOD MATCH EXISTS, USE 'General'.\n`;
 
   try {
     const result = await model.generateContent(prompt);
