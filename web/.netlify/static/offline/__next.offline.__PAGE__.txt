@@ -1,5 +1,0 @@
-1:"$Sreact.fragment"
-2:I[97367,["/_next/static/chunks/ff1a16fafef87110.js","/_next/static/chunks/d2be314c3ece3fbe.js"],"OutletBoundary"]
-3:"$Sreact.suspense"
-0:{"buildId":"WqHMgSe_g2f0-s2PFucSD","rsc":["$","$1","c",{"children":[["$","div",null,{"className":"flex min-h-screen items-center justify-center bg-[var(--background)] px-6 text-[color:var(--foreground)]","children":["$","div",null,{"className":"w-full max-w-md text-center","children":[["$","h1",null,{"className":"text-2xl font-semibold tracking-tight","children":"You’re offline"}],["$","p",null,{"className":"mt-3 text-sm text-[color:var(--muted)]","children":"Please reconnect to continue syncing your vocabulary."}]]}]}],null,["$","$L2",null,{"children":["$","$3",null,{"name":"Next.MetadataOutlet","children":"$@4"}]}]]}],"loading":null,"isPartial":false}
-4:null
