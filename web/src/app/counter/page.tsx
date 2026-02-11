@@ -309,16 +309,14 @@ function CounterPageInner() {
     
     triggerDogAnimation();
 
-    // Play pop.mp3 on each tap of the dog circle with optimized latency
+    // Play pop.mp3 on each tap of the dog circle with maximum speed
     try {
-      if (!popAudioRef.current) {
-        popAudioRef.current = new Audio("/pop.mp3");
-        popAudioRef.current.preload = "auto";
-      }
       const audio = popAudioRef.current;
-      audio.currentTime = 0;
-      audio.volume = soundLevel === 0 ? 0.5 : soundLevel === 2 ? 1 : 0.65;
-      void audio.play();
+      if (audio) {
+        audio.currentTime = 0;
+        audio.volume = soundLevel === 0 ? 0.5 : soundLevel === 2 ? 1 : 0.65;
+        void audio.play();
+      }
     } catch (err) {
       console.error("Failed to play pop.mp3:", err);
     }
@@ -397,6 +395,19 @@ function CounterPageInner() {
     setTtsActive(null);
     setTtsBusy(false);
   }, [current?.id]);
+
+  useEffect(() => {
+    // Pre-warm audio objects for zero latency
+    if (typeof window !== "undefined") {
+      popAudioRef.current = new Audio("/pop.mp3");
+      popAudioRef.current.preload = "auto";
+      popAudioRef.current.load();
+      
+      speakerAudioRef.current = new Audio("/default.mp3");
+      speakerAudioRef.current.preload = "auto";
+      speakerAudioRef.current.load();
+    }
+  }, []);
 
   const effectiveCount = optimisticCount ?? count;
   const statusIcon = status === "ready" ? "💎" : status === "queue" ? "😮" : "🔥";
@@ -853,8 +864,8 @@ function CounterPageInner() {
                   </div>
                   <div className="mt-3">
                     <div className="flex items-start justify-between">
-                      <button type="button" onClick={() => void cycleStatus()} disabled={statusBusy} className={"flex h-[72px] w-[72px] items-center justify-center text-[53px] " + (statusBusy ? "opacity-55" : "opacity-100")}>{statusIcon}</button>
-                      <div className="flex-1 text-center -mt-[20px]"><div className="inline-flex items-start gap-2"><motion.div key={effectiveCount} initial={{ scale: 1 }} animate={pulseKey > 0 ? { scale: [1, 1.15, 1] } : {}} className="bg-gradient-to-r from-[#60A5FA] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[65px] sm:text-[76px] font-black leading-none mt-[10px]">{effectiveCount.toLocaleString()}{tapPopupText && (
+                      <button type="button" onClick={() => void cycleStatus()} disabled={statusBusy} className={"flex h-[86px] w-[86px] items-center justify-center text-[64px] transition-all active:scale-95 " + (statusBusy ? "opacity-55" : "opacity-100")}>{statusIcon}</button>
+                      <div className="flex-1 text-center -mt-[10px]"><div className="inline-flex items-start gap-2"><motion.div key={effectiveCount} initial={{ scale: 1 }} animate={pulseKey > 0 ? { scale: [1, 1.15, 1] } : {}} className="bg-gradient-to-r from-[#60A5FA] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[65px] sm:text-[76px] font-black leading-none mt-[10px]">{effectiveCount.toLocaleString()}{tapPopupText && (
   <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50">
     <AnimatePresence mode="popLayout">
       <motion.div 
