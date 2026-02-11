@@ -31,6 +31,20 @@
   --font-mono: var(--font-geist-mono);
 }
 
+@layer base {
+  html, body {
+    @apply antialiased overflow-x-hidden;
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  
+  input, textarea {
+    user-select: text;
+  }
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

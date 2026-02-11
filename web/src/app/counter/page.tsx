@@ -309,6 +309,20 @@ function CounterPageInner() {
     
     triggerDogAnimation();
 
+    // Play pop.mp3 on each tap of the dog circle with optimized latency
+    try {
+      if (!popAudioRef.current) {
+        popAudioRef.current = new Audio("/pop.mp3");
+        popAudioRef.current.preload = "auto";
+      }
+      const audio = popAudioRef.current;
+      audio.currentTime = 0;
+      audio.volume = soundLevel === 0 ? 0.5 : soundLevel === 2 ? 1 : 0.65;
+      void audio.play();
+    } catch (err) {
+      console.error("Failed to play pop.mp3:", err);
+    }
+
     // Increment local dog tap count for TTS logic
     dogTapCountRef.current++;
 
@@ -348,10 +362,27 @@ function CounterPageInner() {
 
   const tapTtsIcon = tapTtsMode === "max" ? "🔊" : tapTtsMode === "3" ? "🔉" : tapTtsMode === "10" ? "🔈" : "🔇";
   const tapTtsBadge = tapTtsMode === "max" ? "1" : tapTtsMode === "3" ? "3" : tapTtsMode === "10" ? "10" : null;
+  const speakerAudioRef = useRef<HTMLAudioElement | null>(null);
+  const popAudioRef = useRef<HTMLAudioElement | null>(null);
+
   const cycleTapMode = () => {
     const order: Array<"max" | "3" | "10" | "off"> = ["off", "10", "3", "max"];
     const idx = order.indexOf(tapTtsMode);
     setTapMode(order[(idx + 1) % order.length] ?? "off");
+
+    // Play default.mp3 on each tap of the speaker icon with optimized latency
+    try {
+      if (!speakerAudioRef.current) {
+        speakerAudioRef.current = new Audio("/default.mp3");
+        speakerAudioRef.current.preload = "auto";
+      }
+      const audio = speakerAudioRef.current;
+      audio.currentTime = 0; // Reset to start for instant replay
+      audio.volume = soundLevel === 0 ? 0.5 : soundLevel === 2 ? 1 : 0.65;
+      void audio.play();
+    } catch (err) {
+      console.error("Failed to play default.mp3:", err);
+    }
   };
 
   useEffect(() => {
@@ -372,6 +403,21 @@ function CounterPageInner() {
 
   const cycleStatus = async () => {
     if (!isAuthed || !uid || !current || statusBusy) return;
+
+    // Play default.mp3 on status change
+    try {
+      if (!speakerAudioRef.current) {
+        speakerAudioRef.current = new Audio("/default.mp3");
+        speakerAudioRef.current.preload = "auto";
+      }
+      const audio = speakerAudioRef.current;
+      audio.currentTime = 0;
+      audio.volume = soundLevel === 0 ? 0.5 : soundLevel === 2 ? 1 : 0.65;
+      void audio.play();
+    } catch (err) {
+      console.error("Failed to play sound on status change:", err);
+    }
+
     const cur = (current.status ?? "queue").toString();
     const next = cur === "queue" ? "drill" : cur === "drill" ? "ready" : "queue";
     setOptimisticStatus(next);
@@ -392,6 +438,20 @@ function CounterPageInner() {
   };
 
   const cycleStep = () => {
+    // Play default.mp3 on step cycle
+    try {
+      if (!speakerAudioRef.current) {
+        speakerAudioRef.current = new Audio("/default.mp3");
+        speakerAudioRef.current.preload = "auto";
+      }
+      const audio = speakerAudioRef.current;
+      audio.currentTime = 0;
+      audio.volume = soundLevel === 0 ? 0.5 : soundLevel === 2 ? 1 : 0.65;
+      void audio.play();
+    } catch (err) {
+      console.error("Failed to play sound on step cycle:", err);
+    }
+
     const order: Array<1 | 2 | 5> = [1, 2, 5];
     setIncrementStep((prev) => order[(order.indexOf(prev) + 1) % order.length] ?? 5);
   };

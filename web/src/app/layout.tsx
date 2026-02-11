@@ -5,6 +5,7 @@ import { FirebaseBootstrap } from "@/components/FirebaseBootstrap";
 import { ThemeBootstrap } from "@/components/ThemeBootstrap";
 import { Navbar } from "@/components/Navbar";
 import { InstallPrompt } from "@/components/InstallPrompt";
+import { AntiZoom } from "@/components/AntiZoom";
 
 export const metadata: Metadata = {
   title: "Sar Kyat Pro",
@@ -42,6 +43,7 @@ export default function RootLayout({
       <body className="bg-[#0A0B0F]">
         <ThemeBootstrap>
           <FirebaseBootstrap>
+            <AntiZoom />
             <ServiceWorkerRegistrar />
             <InstallPrompt />
             {children}

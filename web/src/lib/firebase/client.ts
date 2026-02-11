@@ -2,6 +2,7 @@
 
 import { initializeApp, getApp, getApps } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 import {
   enableIndexedDbPersistence,
   getFirestore,
@@ -36,6 +37,7 @@ export const firebaseApp = hasFirebaseConfig
 
 let _auth: Auth | null = null;
 let _db: Firestore | null = null;
+let _storage: FirebaseStorage | null = null;
 let didEnablePersistence = false;
 
 export function getFirebaseAuth(): Auth {
@@ -48,6 +50,18 @@ export function getFirebaseAuth(): Auth {
     _auth = getAuth(firebaseApp);
   }
   return _auth;
+}
+
+export function getFirebaseStorage(): FirebaseStorage {
+  if (!firebaseApp) {
+    throw new Error(
+      "Firebase is not configured. Set NEXT_PUBLIC_FIREBASE_* environment variables."
+    );
+  }
+  if (!_storage) {
+    _storage = getStorage(firebaseApp);
+  }
+  return _storage;
 }
 
 export function getFirebaseDb(): Firestore {
