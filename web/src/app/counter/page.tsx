@@ -10,7 +10,7 @@ import confetti from "canvas-confetti";
 import { Suspense, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
-import { fetchAiApiKey, upsertVocabulary } from "@/lib/vocab/firestore";
+import { fetchAiApiKey, upsertVocabulary, vocabCollectionPath } from "@/lib/vocab/firestore";
 import type { VocabularyEntry } from "@/lib/vocab/types";
 import { generateThaiExplanation } from "@/lib/gemini";
 import { parseThaiWord, CharBreakdown } from "@/lib/vocab/thaiParser";
@@ -71,17 +71,7 @@ function CounterPageInner() {
   const [showCongrats, setShowCongrats] = useState(false);
   const hasShownCongratsTodayRef = useRef(false);
 
-  useEffect(() => {
-    if (toHitCount === 0 && !hasShownCongratsTodayRef.current && items.length > 0) {
-      setShowCongrats(true);
-      hasShownCongratsTodayRef.current = true;
-      confetti({
-        particleCount: 150,
-        spread: 70,
-        origin: { y: 0.6 }
-      });
-    }
-  }, [toHitCount, items.length]);
+  // Auto-congrats logic removed from here to follow the 1s delay on 'ready' status
 
   const current = useMemo(() => {
     if (!isAuthed) return null;
@@ -114,7 +104,7 @@ function CounterPageInner() {
     setStatusBusy(true);
     try {
       const db = getFirebaseDb();
-      const docRef = doc(db, "users", uid, "vocabulary", current.id);
+      const docRef = doc(db, vocabCollectionPath(uid), current.id);
       await updateDoc(docRef, {
         thai: editThai,
         burmese: editBurmese,
@@ -123,13 +113,14 @@ function CounterPageInner() {
         category: editCategory,
         updatedAt: serverTimestamp(),
       });
-      // Delay dismiss for 1s
+      
+      console.log("Changes saved, dismissing in 1s...");
       setTimeout(() => {
         setIsEditing(false);
+        setStatusBusy(false);
       }, 1000);
     } catch (err) {
       console.error("Error saving edits:", err);
-    } finally {
       setStatusBusy(false);
     }
   };
@@ -858,10 +849,9 @@ function CounterPageInner() {
 
   useEffect(() => { void startAutoExplain(); }, [current?.id, isAuthed]);
   useEffect(() => {
-    if (!current?.id || !thai.trim() || !isAuthed || soundLevel === 0 || lastAutoSpokenIdRef.current === current.id) return;
-    lastAutoSpokenIdRef.current = current.id;
-    void playThaiTts(thai, "main-" + current.id);
-  }, [current?.id, isAuthed, soundLevel]);
+    if (!current?.id || !thai.trim() || !isAuthed || soundLevel === 0) return;
+    void playThaiTts(thai, "auto-" + current.id);
+  }, [current?.id, isAuthed, soundLevel, thai]);
 
   const showAiExplain = current?.ai_composition || current?.ai_sentence || current?.ai_explanation || (current?.id && aiDismissedId !== current.id && (aiBusy || aiError || aiDraft));
 
@@ -879,8 +869,15 @@ function CounterPageInner() {
               <motion.div
                 initial={{ scale: 0.8, opacity: 0, y: 20 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
-                className="w-full max-w-sm bg-[#1A1B23] rounded-[40px] border border-white/10 p-8 flex flex-col items-center text-center shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+                className="relative w-full max-w-sm bg-[#1A1B23] rounded-[40px] border border-white/10 p-8 flex flex-col items-center text-center shadow-[0_0_50px_rgba(0,0,0,0.5)]"
               >
+                <button
+                  onClick={() => setShowCongrats(false)}
+                  className="absolute top-6 right-6 h-10 w-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-all active:scale-90"
+                >
+                  <X size={24} className="text-white/40" />
+                </button>
+
                 <div className="relative w-48 h-48 mb-6">
                   <img
                     src="/con.png"
@@ -907,7 +904,7 @@ function CounterPageInner() {
                   <button
                     onClick={() => {
                       setShowCongrats(false);
-                      // Smart transition logic moved here: find next vocab after user clicks Continue
+                      // Load next non-ready vocab
                       const candidates = [
                         ...items.filter(it => it.id !== current?.id && it.status === "drill"),
                         ...items.filter(it => it.id !== current?.id && (it.status === "queue" || !it.status))
@@ -974,15 +971,15 @@ function CounterPageInner() {
                   <div className="mt-3">
                     <div className="flex items-start justify-between">
                       <button type="button" onClick={() => void cycleStatus()} disabled={statusBusy} className={"flex h-[86px] w-[86px] items-center justify-center text-[64px] transition-all active:scale-95 " + (statusBusy ? "opacity-55" : "opacity-100")}>{statusIcon}</button>
-                      <div className="flex-1 text-center -mt-[5px]"><div className="inline-flex items-start gap-2"><motion.div key={effectiveCount} initial={{ scale: 1 }} animate={pulseKey > 0 ? { scale: [1, 1.15, 1] } : {}} className="bg-gradient-to-r from-[#60A5FA] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[65px] sm:text-[76px] font-black leading-none mt-[10px]">{effectiveCount.toLocaleString()}{tapPopupText && (
+                      <div className="flex-1 text-center -mt-[0px]"><div className="inline-flex items-start gap-2"><motion.div key={effectiveCount} initial={{ scale: 1 }} animate={pulseKey > 0 ? { scale: [1, 1.15, 1] } : {}} className="bg-gradient-to-r from-[#60A5FA] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[65px] sm:text-[76px] font-black leading-none mt-[10px]">{effectiveCount.toLocaleString()}{tapPopupText && (
   <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50">
     <AnimatePresence mode="popLayout">
       <motion.div 
         key={tapPopupKey} 
-        initial={{ opacity: 0, y: 20, scale: 0.5, rotate: -10 }} 
+        initial={{ opacity: 0, y: 60, scale: 0.5, rotate: -10 }} 
         animate={{ 
           opacity: [0, 1, 1, 0],
-          y: -140, 
+          y: -100, 
           x: 120,
           scale: [0.5, 2.5, 2.8, 2],
           rotate: [ -10, 15, 20, 25 ]
@@ -1051,7 +1048,7 @@ function CounterPageInner() {
                       <div className="relative rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] overflow-hidden">
                         {/* Pagination Dots */}
                         <div className="absolute top-2 left-0 right-0 flex items-center justify-center gap-1.5 z-20 pointer-events-none">
-                          {[0, 1, 2, 3].map((idx) => (
+                          {[0, 1, 2].map((idx) => (
                             <div 
                               key={idx}
                               className={`h-[4px] rounded-full transition-all duration-300 ${activeTargetCard === idx ? 'bg-white/70 w-3' : 'bg-white/30 w-[4px]'}`} 
@@ -1068,7 +1065,7 @@ function CounterPageInner() {
                               const startX = touch.clientX;
                               const handleTouchEnd = (ee: TouchEvent) => {
                                 const endX = ee.changedTouches[0].clientX;
-                                if (startX - endX > 50 && activeTargetCard < 3) setActiveTargetCard(prev => prev + 1);
+                                if (startX - endX > 50 && activeTargetCard < 2) setActiveTargetCard(prev => prev + 1);
                                 if (endX - startX > 50 && activeTargetCard > 0) setActiveTargetCard(prev => prev - 1);
                                 document.removeEventListener("touchend", handleTouchEnd);
                               };
@@ -1101,20 +1098,7 @@ function CounterPageInner() {
                               </div>
                             </div>
 
-                            {/* Card 3: Total Vocab */}
-                            <div className="w-full shrink-0 px-4 py-3 flex items-center justify-between relative h-full">
-                              <div className="flex flex-col">
-                                <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Total Vocab</span>
-                                <span className="text-[10px] font-medium text-white/20 uppercase tracking-tight">Lifetime</span>
-                              </div>
-                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                <span className="text-[52px] font-black bg-gradient-to-r from-[#FFB020] to-[#FF4D6D] bg-clip-text text-transparent leading-none">
-                                  {totalVocabCounts.toLocaleString()}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Card 4: Missed Days */}
+                            {/* Card 3: Missed Days */}
                             <div className="w-full shrink-0 px-4 py-3 flex items-center justify-between relative h-full">
                               <div className="flex flex-col">
                                 <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Missed Days</span>

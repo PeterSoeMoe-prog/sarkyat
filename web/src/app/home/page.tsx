@@ -265,6 +265,37 @@ export default function HomePage() {
   const router = useRouter();
   const [hasMounted, setHasMounted] = useState(false);
 
+  const handleResume = () => {
+    if (!items.length) {
+      router.push("/vocab");
+      return;
+    }
+
+    // 1. Check last active vocab from localStorage
+    const lastId = typeof window !== "undefined" ? localStorage.getItem("sar-kyat-last-active-vocab-id") : null;
+    if (lastId) {
+      const lastItem = items.find(it => it.id === lastId);
+      // Load if it exists and is NOT ready
+      if (lastItem && lastItem.status !== "ready") {
+        router.push(`/counter?id=${encodeURIComponent(lastId)}`);
+        return;
+      }
+    }
+
+    // 2. Otherwise, find next available item (Queue first, then Drill)
+    const candidates = [
+      ...items.filter(it => it.status === "queue" || !it.status),
+      ...items.filter(it => it.status === "drill")
+    ];
+
+    if (candidates.length > 0) {
+      router.push(`/counter?id=${encodeURIComponent(candidates[0].id)}`);
+    } else {
+      // 3. Fallback to vocab list if everything is 'ready'
+      router.push("/vocab");
+    }
+  };
+
   const isAuthed = !!uid;
 
   const [activeCardIndex, setActiveCardIndex] = useState(0);
@@ -525,7 +556,7 @@ export default function HomePage() {
                         <motion.button
                           type="button"
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => router.push("/counter")}
+                          onClick={handleResume}
                           className={btnBase + " bg-gradient-to-r from-[#FF4D94] via-[#FF4D6D] to-[#FF7A00] !py-3 !px-2 !text-[13px] shadow-none"}
                         >
                           Resume
