@@ -372,6 +372,7 @@ function CounterPageInner() {
   const speakerAudioRef = useRef<HTMLAudioElement | null>(null);
   const popAudioRef = useRef<HTMLAudioElement | null>(null);
   const warningAudioRef = useRef<HTMLAudioElement | null>(null);
+  const congratsAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const cycleTapMode = () => {
     const order: Array<"max" | "3" | "10" | "off"> = ["off", "10", "3", "max"];
@@ -420,6 +421,10 @@ function CounterPageInner() {
       warningAudioRef.current = new Audio("/warning.mp3");
       warningAudioRef.current.preload = "auto";
       warningAudioRef.current.load();
+
+      congratsAudioRef.current = new Audio("/con.mp3");
+      congratsAudioRef.current.preload = "auto";
+      congratsAudioRef.current.load();
     }
   }, []);
 
@@ -453,13 +458,48 @@ function CounterPageInner() {
       // Smart transition logic: if status changed to 'ready', wait 1s
       if (next === "ready") {
         setTimeout(() => {
+          // Play congrats sound
+          try {
+            const audio = congratsAudioRef.current;
+            if (audio) {
+              audio.currentTime = 0;
+              audio.volume = soundLevel === 0 ? 0.5 : soundLevel === 2 ? 1 : 0.65;
+              void audio.play();
+            }
+          } catch (err) {
+            console.error("Failed to play congrats sound:", err);
+          }
+
           // Show congratulations popup
           setShowCongrats(true);
-          confetti({
-            particleCount: 150,
-            spread: 70,
-            origin: { y: 0.6 }
-          });
+          
+          // Trigger rain confetti from the top
+          const duration = 3 * 1000;
+          const end = Date.now() + duration;
+
+          const frame = () => {
+            confetti({
+              particleCount: 2,
+              angle: 60,
+              spread: 55,
+              origin: { x: 0, y: 0 },
+              gravity: 0.8,
+              ticks: 300
+            });
+            confetti({
+              particleCount: 2,
+              angle: 120,
+              spread: 55,
+              origin: { x: 1, y: 0 },
+              gravity: 0.8,
+              ticks: 300
+            });
+
+            if (Date.now() < end) {
+              requestAnimationFrame(frame);
+            }
+          };
+          frame();
 
           // Priority order for next vocab after popup is closed (handled by Continue button)
           // or we can pre-select it now but stay on this page until user continues
@@ -848,10 +888,67 @@ function CounterPageInner() {
   };
 
   useEffect(() => { void startAutoExplain(); }, [current?.id, isAuthed]);
+  
+  // Use a ref to prevent double-triggering or stale playback
+  const autoTtsTriggeredIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!current?.id || !thai.trim() || !isAuthed || soundLevel === 0) return;
-    void playThaiTts(thai, "auto-" + current.id);
+    
+    if (autoTtsTriggeredIdRef.current !== current.id) {
+      autoTtsTriggeredIdRef.current = current.id;
+      
+      const timer = setTimeout(() => {
+        const text = thai.trim();
+        const playAuto = async () => {
+          try {
+            const auth = getFirebaseAuth();
+            const token = await auth.currentUser?.getIdToken();
+            if (!token) return;
+
+            const res = await fetch("/api/tts", { 
+              method: "POST", 
+              headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, 
+              body: JSON.stringify({ text }) 
+            });
+            if (!res.ok) return;
+            
+            const buf = await res.arrayBuffer();
+            const url = URL.createObjectURL(new Blob([buf], { type: "audio/mpeg" }));
+            const audio = new Audio(url);
+            audio.volume = soundLevel === 2 ? 1 : 0.65;
+            
+            // Critical: Play directly without setting state if possible to avoid component lifecycle issues
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+              playPromise.catch(e => console.error("Auto-play blocked or failed:", e));
+            }
+            
+            audio.onended = () => { URL.revokeObjectURL(url); };
+          } catch (e) {
+            console.error("Auto TTS Error:", e);
+          }
+        };
+        void playAuto();
+      }, 500); // Increased delay to 500ms
+      return () => clearTimeout(timer);
+    }
   }, [current?.id, isAuthed, soundLevel, thai]);
+
+  useEffect(() => {
+    if (showCongrats) {
+      try {
+        const audio = new Audio("/con.mp3");
+        audio.volume = soundLevel === 0 ? 0.5 : soundLevel === 2 ? 1 : 0.65;
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(e => console.error("Congrats sound blocked:", e));
+        }
+      } catch (err) {
+        console.error("Failed to play congrats sound in useEffect:", err);
+      }
+    }
+  }, [showCongrats, soundLevel]);
 
   const showAiExplain = current?.ai_composition || current?.ai_sentence || current?.ai_explanation || (current?.id && aiDismissedId !== current.id && (aiBusy || aiError || aiDraft));
 
@@ -878,13 +975,24 @@ function CounterPageInner() {
                   <X size={24} className="text-white/40" />
                 </button>
 
-                <div className="relative w-48 h-48 mb-6">
+                <motion.div 
+                  className="relative w-64 h-64 mb-6"
+                  animate={{ 
+                    scale: [1, 1.1, 1],
+                    rotate: [0, 5, -5, 0]
+                  }}
+                  transition={{ 
+                    duration: 2,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                >
                   <img
                     src="/con.png"
                     alt="Trophy"
                     className="w-full h-full object-contain"
                   />
-                </div>
+                </motion.div>
                 
                 <h2 className="text-[32px] font-black text-white mb-8 tracking-tight">
                   Congratulations!
