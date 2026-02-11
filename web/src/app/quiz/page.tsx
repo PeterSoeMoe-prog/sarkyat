@@ -22,6 +22,7 @@ export default function QuizPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [score, setScore] = useState(0);
+  const [passedVocabIDs, setPassedVocabIDs] = useState<string[]>([]);
   const [failedVocabIDs, setFailedVocabIDs] = useState<string[]>([]);
   const [showResult, setShowResult] = useState(false);
   const [feedbackText, setFeedbackText] = useState<string | null>(null);
@@ -83,7 +84,12 @@ export default function QuizPage() {
       return;
     }
 
-    const pool = items.filter(it => it.burmese && it.burmese.trim() !== "");
+    const passedIDs = JSON.parse(localStorage.getItem("passed_quiz_ids") || "[]");
+    const pool = items.filter(it => 
+      it.burmese && 
+      it.burmese.trim() !== "" && 
+      !passedIDs.includes(it.id)
+    );
     if (pool.length < 3) {
       setIsGenerating(false);
       return;
@@ -200,6 +206,12 @@ export default function QuizPage() {
 
     if (isCorrect) {
       setScore(prev => prev + 1);
+      setPassedVocabIDs(prev => [...new Set([...prev, question.vocabID])]);
+      
+      // Persist passed IDs so they are excluded from the next session
+      const existingPassed = JSON.parse(localStorage.getItem("passed_quiz_ids") || "[]");
+      localStorage.setItem("passed_quiz_ids", JSON.stringify([...new Set([...existingPassed, question.vocabID])]));
+      
       correctAudioRef.current?.play().catch(() => {});
     } else {
       wrongAudioRef.current?.play().catch(() => {});

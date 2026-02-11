@@ -6,6 +6,7 @@ import Lottie, { LottieRefCurrentProps } from "lottie-react";
 // Import animation data directly to ensure it's bundled
 import dogAnimationData from "../../../public/dog-walking.json";
 import { ChevronLeft, Volume2, Plus, Minus, Info, Settings, List, Edit2, Check, X, RefreshCcw } from "lucide-react";
+import confetti from "canvas-confetti";
 import { Suspense, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useVocabulary } from "@/lib/vocab/useVocabulary";
@@ -37,7 +38,10 @@ function CounterPageInner() {
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("id");
 
-  const [activeTargetCard, setActiveTargetCard] = useState(0);
+  const toHitCount = useMemo(() => {
+    if (!backfillingState?.dailyTarget) return 0;
+    return Math.max(0, backfillingState.dailyTarget - (backfillingState.currentDayProgress || 0));
+  }, [backfillingState]);
 
   const daysDifference = useMemo(() => {
     if (!xDate || !rule) return 0;
@@ -63,10 +67,21 @@ function CounterPageInner() {
     return `${m} ${currentTargetDate.getDate()}, ${currentTargetDate.getFullYear()}`;
   }, [currentTargetDate]);
 
-  const toHitCount = useMemo(() => {
-    if (!backfillingState?.dailyTarget) return 0;
-    return Math.max(0, backfillingState.dailyTarget - (backfillingState.currentDayProgress || 0));
-  }, [backfillingState]);
+  const [activeTargetCard, setActiveTargetCard] = useState(0);
+  const [showCongrats, setShowCongrats] = useState(false);
+  const hasShownCongratsTodayRef = useRef(false);
+
+  useEffect(() => {
+    if (toHitCount === 0 && !hasShownCongratsTodayRef.current && items.length > 0) {
+      setShowCongrats(true);
+      hasShownCongratsTodayRef.current = true;
+      confetti({
+        particleCount: 150,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+    }
+  }, [toHitCount, items.length]);
 
   const current = useMemo(() => {
     if (!isAuthed) return null;
@@ -108,7 +123,10 @@ function CounterPageInner() {
         category: editCategory,
         updatedAt: serverTimestamp(),
       });
-      setIsEditing(false);
+      // Delay dismiss for 1s
+      setTimeout(() => {
+        setIsEditing(false);
+      }, 1000);
     } catch (err) {
       console.error("Error saving edits:", err);
     } finally {
@@ -362,6 +380,7 @@ function CounterPageInner() {
   const tapTtsBadge = tapTtsMode === "max" ? "1" : tapTtsMode === "3" ? "3" : tapTtsMode === "10" ? "10" : null;
   const speakerAudioRef = useRef<HTMLAudioElement | null>(null);
   const popAudioRef = useRef<HTMLAudioElement | null>(null);
+  const warningAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const cycleTapMode = () => {
     const order: Array<"max" | "3" | "10" | "off"> = ["off", "10", "3", "max"];
@@ -406,6 +425,10 @@ function CounterPageInner() {
       speakerAudioRef.current = new Audio("/default.mp3");
       speakerAudioRef.current.preload = "auto";
       speakerAudioRef.current.load();
+
+      warningAudioRef.current = new Audio("/warning.mp3");
+      warningAudioRef.current.preload = "auto";
+      warningAudioRef.current.load();
     }
   }, []);
 
@@ -436,10 +459,19 @@ function CounterPageInner() {
     try {
       await upsertVocabulary(uid, { ...current, status: next as any });
       
-      // Auto-dismiss logic: if status changed to 'ready', wait 1s and navigate
+      // Smart transition logic: if status changed to 'ready', wait 1s
       if (next === "ready") {
         setTimeout(() => {
-          router.push("/vocab");
+          // Show congratulations popup
+          setShowCongrats(true);
+          confetti({
+            particleCount: 150,
+            spread: 70,
+            origin: { y: 0.6 }
+          });
+
+          // Priority order for next vocab after popup is closed (handled by Continue button)
+          // or we can pre-select it now but stay on this page until user continues
         }, 1000);
       }
     } finally {
@@ -482,6 +514,19 @@ function CounterPageInner() {
 
   const decrementCount = async () => {
     if (!isAuthed || !uid || !current || countBusy) return;
+
+    // Play warning.mp3 on deduct button tap
+    try {
+      const audio = warningAudioRef.current;
+      if (audio) {
+        audio.currentTime = 0;
+        audio.volume = soundLevel === 0 ? 0.5 : soundLevel === 2 ? 1 : 0.65;
+        void audio.play();
+      }
+    } catch (err) {
+      console.error("Failed to play warning.mp3:", err);
+    }
+
     const base = Number.isFinite(Number(current.count)) ? Number(current.count) : 0;
     const next = Math.max(0, base - incrementStep);
     setOptimisticCount(next);
@@ -780,8 +825,11 @@ function CounterPageInner() {
       const newSent = sentMatch ? sentMatch[1].trim() : "";
 
       // If refreshing a specific part, merge with existing
+      // IMPORTANT: Use latest count and status from local state to avoid resets
       const updatedEntry: VocabularyEntry = {
         ...current,
+        count: effectiveCount,
+        status: (optimisticStatus ?? status) as any,
         ai_composition: refreshPart === 'sentence' ? current.ai_composition : newComp,
         ai_sentence: refreshPart === 'composition' ? current.ai_sentence : newSent,
         ai_explanation: null // Move away from combined field
@@ -820,6 +868,67 @@ function CounterPageInner() {
   return (
     <div className="min-h-screen bg-[#0A0B0F] text-white">
       <div className="min-h-screen">
+        <AnimatePresence>
+          {showCongrats && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-md p-6"
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                className="w-full max-w-sm bg-[#1A1B23] rounded-[40px] border border-white/10 p-8 flex flex-col items-center text-center shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+              >
+                <div className="relative w-48 h-48 mb-6">
+                  <img
+                    src="/con.png"
+                    alt="Trophy"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                
+                <h2 className="text-[32px] font-black text-white mb-8 tracking-tight">
+                  Congratulations!
+                </h2>
+
+                <div className="w-full space-y-3">
+                  <button
+                    onClick={() => {
+                      setShowCongrats(false);
+                      router.push("/calendar");
+                    }}
+                    className="w-full py-4 rounded-2xl bg-[#22C55E] text-white font-black text-lg shadow-[0_4px_20px_rgba(34,197,94,0.3)] active:scale-[0.98] transition-transform"
+                  >
+                    Check Daily Stat
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      setShowCongrats(false);
+                      // Smart transition logic moved here: find next vocab after user clicks Continue
+                      const candidates = [
+                        ...items.filter(it => it.id !== current?.id && it.status === "drill"),
+                        ...items.filter(it => it.id !== current?.id && (it.status === "queue" || !it.status))
+                      ];
+
+                      if (candidates.length > 0) {
+                        router.replace(`/counter?id=${encodeURIComponent(candidates[0].id)}`);
+                      } else {
+                        router.push("/vocab");
+                      }
+                    }}
+                    className="w-full py-4 rounded-2xl bg-[#A855F7] text-white font-black text-lg shadow-[0_4px_20px_rgba(168,85,247,0.3)] active:scale-[0.98] transition-transform"
+                  >
+                    Continue
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="mx-auto w-full max-w-md px-4 pt-4 pb-4 min-h-[100dvh] flex flex-col">
           <div className="origin-top flex-1 min-h-0 flex flex-col">
             <header className="grid grid-cols-3 items-center">
@@ -865,7 +974,7 @@ function CounterPageInner() {
                   <div className="mt-3">
                     <div className="flex items-start justify-between">
                       <button type="button" onClick={() => void cycleStatus()} disabled={statusBusy} className={"flex h-[86px] w-[86px] items-center justify-center text-[64px] transition-all active:scale-95 " + (statusBusy ? "opacity-55" : "opacity-100")}>{statusIcon}</button>
-                      <div className="flex-1 text-center -mt-[10px]"><div className="inline-flex items-start gap-2"><motion.div key={effectiveCount} initial={{ scale: 1 }} animate={pulseKey > 0 ? { scale: [1, 1.15, 1] } : {}} className="bg-gradient-to-r from-[#60A5FA] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[65px] sm:text-[76px] font-black leading-none mt-[10px]">{effectiveCount.toLocaleString()}{tapPopupText && (
+                      <div className="flex-1 text-center -mt-[5px]"><div className="inline-flex items-start gap-2"><motion.div key={effectiveCount} initial={{ scale: 1 }} animate={pulseKey > 0 ? { scale: [1, 1.15, 1] } : {}} className="bg-gradient-to-r from-[#60A5FA] via-[#B36BFF] to-[#FF4D6D] bg-clip-text text-transparent text-[65px] sm:text-[76px] font-black leading-none mt-[10px]">{effectiveCount.toLocaleString()}{tapPopupText && (
   <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50">
     <AnimatePresence mode="popLayout">
       <motion.div 
@@ -891,7 +1000,7 @@ function CounterPageInner() {
     </AnimatePresence>
   </div>
 )}</motion.div></div></div>
-                      <div className="flex w-[74px] flex-col items-center gap-3 relative z-[200]">
+                      <div className="flex w-[74px] flex-col items-center gap-3 relative z-[200] mt-[8px]">
                         <button type="button" onClick={cycleStep} className="h-[68px] w-[68px] rounded-full p-[3px] bg-white/20 relative z-[201]"><div className="h-full w-full rounded-full border-[3px] border-white/90 bg-gradient-to-br from-[#FF4D6D] to-[#FF7A00] flex items-center justify-center relative"><span className="absolute top-[10px] left-[6px] text-[14px] font-black">+</span><span className="text-[34px] font-black">{incrementStep}</span></div></button>
                         <div className="relative z-[201]">
                           <button 
