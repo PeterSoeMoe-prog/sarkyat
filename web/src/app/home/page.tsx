@@ -517,51 +517,60 @@ export default function HomePage() {
                       >
                         <span className="bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] bg-clip-text text-transparent">AI+ Vocabs</span>
                       </motion.button>
+
+                      <motion.button
+                        type="button"
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => router.push("/audio-notes")}
+                        className={btnBase + " mt-2 bg-white/5 border border-white/10 !py-3.5 !text-[15px] font-black text-white/80 shadow-none hover:bg-white/10 transition-colors"}
+                      >
+                        <span className="bg-gradient-to-r from-[#2CE08B] to-[#49D2FF] bg-clip-text text-transparent">Audio Notes</span>
+                      </motion.button>
                     </div>
                   </div>
 
                   {/* Card 2: Session Picker (iOS Style) */}
                   <div className="w-full shrink-0 px-5 py-3">
-                    <div className="pt-2">
+                    <div className="pt-1">
                       {/* Tabs Header */}
-                      <div className="flex bg-white/5 rounded-xl p-1 mb-6 border border-white/5">
+                      <div className="flex bg-white/5 rounded-xl p-1 mb-4 border border-white/5">
                         {["Minutes", "Hits", "Vocabs"].map((tab) => (
-                          <div key={tab} className={`flex-1 text-center py-2 text-[13px] font-bold rounded-lg transition-all ${tab === "Hits" ? "bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] text-white" : "text-white/40"}`}>
+                          <div key={tab} className={`flex-1 text-center py-1.5 text-[12px] font-bold rounded-lg transition-all ${tab === "Hits" ? "bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] text-white" : "text-white/40"}`}>
                             {tab}
                           </div>
                         ))}
                       </div>
 
                       {/* Selectors Placeholder */}
-                      <div className="flex justify-around items-center mb-8 h-24">
-                        <div className="text-center">
-                          <div className="text-white/20 text-sm font-bold mb-1">60</div>
-                          <div className="bg-white/5 rounded-xl px-4 py-2 text-[20px] font-black text-white/40 border border-white/5">60</div>
-                          <div className="text-white/20 text-sm font-bold mt-1">40</div>
+                      <div className="flex justify-around items-center mb-4 h-20">
+                        <div className="text-center scale-90 origin-bottom">
+                          <div className="text-white/20 text-[12px] font-bold mb-0.5">60</div>
+                          <div className="bg-white/5 rounded-xl px-3 py-1.5 text-[18px] font-black text-white/40 border border-white/5">60</div>
+                          <div className="text-white/20 text-[12px] font-bold mt-0.5">40</div>
                         </div>
                         <div className="text-center">
-                          <div className="text-white/20 text-sm font-bold mb-1">7,000</div>
-                          <div className="bg-white/5 rounded-xl px-6 py-2 text-[24px] font-black text-white border border-white/10 shadow-[0_0_20px_rgba(255,255,255,0.05)]">5,000</div>
-                          <div className="text-white/20 text-sm font-bold mt-1">3,000</div>
+                          <div className="text-white/20 text-[13px] font-bold mb-0.5">7,000</div>
+                          <div className="bg-white/5 rounded-xl px-5 py-1.5 text-[22px] font-black text-white border border-white/10 shadow-[0_0_20px_rgba(255,255,255,0.05)]">5,000</div>
+                          <div className="text-white/20 text-[13px] font-bold mt-0.5">3,000</div>
                         </div>
-                        <div className="text-center">
-                          <div className="text-white/20 text-sm font-bold mb-1">15</div>
-                          <div className="bg-white/5 rounded-xl px-4 py-2 text-[20px] font-black text-white/40 border border-white/5">10</div>
-                          <div className="text-white/20 text-sm font-bold mt-1">5</div>
+                        <div className="text-center scale-90 origin-bottom">
+                          <div className="text-white/20 text-[12px] font-bold mb-0.5">15</div>
+                          <div className="bg-white/5 rounded-xl px-3 py-1.5 text-[18px] font-black text-white/40 border border-white/5">10</div>
+                          <div className="text-white/20 text-[12px] font-bold mt-0.5">5</div>
                         </div>
                       </div>
 
                       {/* Action Buttons */}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-3 pb-1">
                         <motion.button
                           whileTap={{ scale: 0.98 }}
-                          className="py-4 rounded-2xl bg-white/5 border border-white/10 text-[16px] font-black text-white/60"
+                          className="py-3 rounded-2xl bg-white/5 border border-white/10 text-[15px] font-black text-white/60"
                         >
                           Start Session
                         </motion.button>
                         <motion.button
                           whileTap={{ scale: 0.98 }}
-                          className="py-4 rounded-2xl bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] text-[16px] font-black text-white shadow-[0_0_20px_rgba(73,210,255,0.4)] relative overflow-hidden group"
+                          className="py-3 rounded-2xl bg-gradient-to-r from-[#FF4D6D] via-[#B36BFF] to-[#49D2FF] text-[15px] font-black text-white shadow-[0_0_20px_rgba(73,210,255,0.4)] relative overflow-hidden group"
                         >
                           <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
                           Resume

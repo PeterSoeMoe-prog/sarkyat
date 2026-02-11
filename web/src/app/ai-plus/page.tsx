@@ -123,42 +123,46 @@ function AiPlusContent() {
   return (
     <div className="min-h-screen bg-[#0A0B0F] text-white">
       {/* Header */}
-      <header className="px-4 pt-[calc(env(safe-area-inset-top)+10px)] pb-4 flex items-center justify-between border-b border-white/5 bg-black/20 backdrop-blur-xl sticky top-0 z-50">
-        <button onClick={() => router.push("/home")} className="h-10 w-10 flex items-center justify-center rounded-full bg-white/5 active:scale-95 transition-all">
-          <LucideChevronLeft size={20} />
-        </button>
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-[#B36BFF] to-[#FF4D6D] flex items-center justify-center shadow-lg shadow-[#B36BFF]/20">
-            <LucideSparkles size={16} className="text-white" />
+      <header className="px-4 pt-[calc(env(safe-area-inset-top)+10px)] pb-4 border-b border-white/5 bg-black/20 backdrop-blur-xl sticky top-0 z-50">
+        <div className="max-w-md mx-auto flex items-center justify-between w-full">
+          <button onClick={() => router.push("/home")} className="h-10 w-10 flex items-center justify-center rounded-full bg-white/5 active:scale-95 transition-all">
+            <LucideChevronLeft size={20} />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-[#B36BFF] to-[#FF4D6D] flex items-center justify-center shadow-lg shadow-[#B36BFF]/20">
+              <LucideSparkles size={16} className="text-white" />
+            </div>
+            <h1 className="text-[18px] font-black tracking-tight">AI Vocabs+</h1>
           </div>
-          <h1 className="text-[18px] font-black tracking-tight">AI Vocabs+</h1>
+          <button onClick={() => setShowSettings(!showSettings)} className="h-10 w-10 flex items-center justify-center rounded-full bg-white/5 active:scale-95 transition-all">
+            <LucideSettings size={20} />
+          </button>
         </div>
-        <button onClick={() => setShowSettings(!showSettings)} className="h-10 w-10 flex items-center justify-center rounded-full bg-white/5 active:scale-95 transition-all">
-          <LucideSettings size={20} />
-        </button>
       </header>
 
       {/* Tab Switcher */}
-      <div className="px-4 py-2 bg-black/20 border-b border-white/5 flex gap-2">
-        <button
-          onClick={() => setActiveTab("suggest")}
-          className={`flex-1 py-3 rounded-xl text-[13px] font-black transition-all ${
-            activeTab === "suggest" ? "bg-white/10 text-white shadow-sm" : "text-white/30 hover:text-white/40"
-          }`}
-        >
-          AI Vocabs+
-        </button>
-        <button
-          onClick={() => setActiveTab("clean")}
-          className={`flex-1 py-3 rounded-xl text-[13px] font-black transition-all ${
-            activeTab === "clean" ? "bg-white/10 text-white shadow-sm" : "text-white/30 hover:text-white/40"
-          }`}
-        >
-          AI Clean
-        </button>
+      <div className="max-w-md mx-auto px-4 mt-4">
+        <div className="p-1.5 bg-black/20 border border-white/5 rounded-2xl flex gap-1">
+          <button
+            onClick={() => setActiveTab("suggest")}
+            className={`flex-1 py-3 rounded-xl text-[13px] font-black transition-all ${
+              activeTab === "suggest" ? "bg-white/10 text-white shadow-sm" : "text-white/30 hover:text-white/40"
+            }`}
+          >
+            AI Vocabs+
+          </button>
+          <button
+            onClick={() => setActiveTab("clean")}
+            className={`flex-1 py-3 rounded-xl text-[13px] font-black transition-all ${
+              activeTab === "clean" ? "bg-white/10 text-white shadow-sm" : "text-white/30 hover:text-white/40"
+            }`}
+          >
+            AI Clean
+          </button>
+        </div>
       </div>
 
-      <main className="p-4 space-y-6 max-w-md mx-auto pb-40">
+      <main className="p-4 space-y-6 max-w-md mx-auto pb-64">
         {activeTab === "suggest" ? (
           <>
             {/* User Context Card */}

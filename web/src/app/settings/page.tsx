@@ -406,19 +406,35 @@ export default function SettingsPage() {
           <h2 className="text-[14px] font-bold uppercase tracking-wider text-[#B36BFF] px-1 mb-3">Tools</h2>
           <div className="rounded-[24px] bg-white/5 p-2 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-white/10 backdrop-blur-3xl">
             <div className="flex flex-col">
-              <Link
-                href="/import"
-                className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 transition-all group"
+              <button
+                onClick={() => window.location.reload()}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 transition-all group text-left"
               >
                 <div className="flex items-center gap-4">
-                  <div className="h-10 w-10 rounded-xl bg-white/5 flex items-center justify-center text-[20px] shadow-inner">📥</div>
+                  <div className="h-10 w-10 rounded-xl bg-white/5 flex items-center justify-center text-[20px] shadow-inner">🔄</div>
                   <div>
-                    <h4 className="text-[14px] font-bold text-white/90">Import CSV</h4>
-                    <p className="text-[11px] font-medium text-white/30">Add external vocabulary</p>
+                    <h4 className="text-[14px] font-bold text-white/90">Refresh App</h4>
+                    <p className="text-[11px] font-medium text-white/30">Force update from server</p>
                   </div>
                 </div>
                 <span className="text-[18px] text-white/20 group-hover:text-white/40 group-hover:translate-x-0.5 transition-all">›</span>
-              </Link>
+              </button>
+
+              <div className="border-t border-white/5 mt-1 pt-1">
+                <Link
+                  href="/import"
+                  className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 transition-all group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="h-10 w-10 rounded-xl bg-white/5 flex items-center justify-center text-[20px] shadow-inner">📥</div>
+                    <div>
+                      <h4 className="text-[14px] font-bold text-white/90">Import CSV</h4>
+                      <p className="text-[11px] font-medium text-white/30">Add external vocabulary</p>
+                    </div>
+                  </div>
+                  <span className="text-[18px] text-white/20 group-hover:text-white/40 group-hover:translate-x-0.5 transition-all">›</span>
+                </Link>
+              </div>
 
               {/* NEW ROW: Export CSV */}
               <div className="border-t border-white/5 mt-1 pt-1">

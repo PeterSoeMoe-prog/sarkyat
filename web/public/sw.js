@@ -1,4 +1,4 @@
-const CACHE_NAME = "sar-kyat-pro-v2";
+const CACHE_NAME = "sar-kyat-pro-v3";
 
 const PRECACHE_URLS = [
   "/home",
@@ -36,14 +36,22 @@ self.addEventListener("fetch", (event) => {
 
   if (request.method !== "GET") return;
 
-  // For navigation requests, try network first, then cache
+  // For navigation requests, try NETWORK FIRST to ensure updates, then fallback to cache
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request).catch(() => {
-        return caches.match(request).then((response) => {
-          return response || caches.match("/home");
-        });
-      })
+      fetch(request)
+        .then((response) => {
+          // If valid response, update cache
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          return response;
+        })
+        .catch(() => {
+          // Offline fallback
+          return caches.match(request).then((response) => {
+            return response || caches.match("/home");
+          });
+        })
     );
     return;
   }
