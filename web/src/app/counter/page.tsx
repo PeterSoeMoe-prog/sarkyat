@@ -281,6 +281,8 @@ function CounterPageInner() {
     particleTimeoutRef.current = window.setTimeout(() => setParticles([]), 700);
   };
 
+  const lastStatusUpdateIdRef = useRef<string | null>(null);
+
   const handleCircleTap = () => {
     if (!isAuthed || !uid || !current || countBusy) return;
     void incrementCount();
@@ -306,6 +308,25 @@ function CounterPageInner() {
     setPulseKey((k) => k + 1);
     
     triggerDogAnimation();
+
+    // Increment local dog tap count for TTS logic
+    dogTapCountRef.current++;
+
+    // Immediate drill logic: change to 'drill' immediately after first tap regardless of status
+    if (uid && current && lastStatusUpdateIdRef.current !== current.id) {
+      lastStatusUpdateIdRef.current = current.id;
+      // Use firestore directly for fastest update
+      const db = getFirebaseDb();
+      const docRef = doc(db, "users", uid, "vocab", current.id);
+      updateDoc(docRef, { 
+        status: "drill",
+        updatedAt: serverTimestamp()
+      }).catch(err => {
+        console.error("Failed to immediate-switch to drill:", err);
+        lastStatusUpdateIdRef.current = null;
+      });
+    }
+
     if (tapTtsMode === "off" || soundLevel === 0) return;
     const every = tapTtsMode === "max" ? 1 : tapTtsMode === "3" ? 3 : 10;
     if (dogTapCountRef.current % every === 0) {
@@ -326,9 +347,9 @@ function CounterPageInner() {
   };
 
   const tapTtsIcon = tapTtsMode === "max" ? "🔊" : tapTtsMode === "3" ? "🔉" : tapTtsMode === "10" ? "🔈" : "🔇";
-  const tapTtsBadge = tapTtsMode === "3" ? "3" : tapTtsMode === "10" ? "10" : null;
+  const tapTtsBadge = tapTtsMode === "max" ? "1" : tapTtsMode === "3" ? "3" : tapTtsMode === "10" ? "10" : null;
   const cycleTapMode = () => {
-    const order: Array<"max" | "3" | "10" | "off"> = ["max", "3", "10", "off"];
+    const order: Array<"max" | "3" | "10" | "off"> = ["off", "10", "3", "max"];
     const idx = order.indexOf(tapTtsMode);
     setTapMode(order[(idx + 1) % order.length] ?? "off");
   };
@@ -352,11 +373,18 @@ function CounterPageInner() {
   const cycleStatus = async () => {
     if (!isAuthed || !uid || !current || statusBusy) return;
     const cur = (current.status ?? "queue").toString();
-    const next = cur === "drill" ? "queue" : cur === "queue" ? "ready" : "drill";
+    const next = cur === "queue" ? "drill" : cur === "drill" ? "ready" : "queue";
     setOptimisticStatus(next);
     setStatusBusy(true);
     try {
       await upsertVocabulary(uid, { ...current, status: next as any });
+      
+      // Auto-dismiss logic: if status changed to 'ready', wait 1s and navigate
+      if (next === "ready") {
+        setTimeout(() => {
+          router.push("/vocab");
+        }, 1000);
+      }
     } finally {
       setStatusBusy(false);
       setOptimisticStatus(null);
@@ -749,7 +777,7 @@ function CounterPageInner() {
                       <div className="space-y-1"><label className="text-[11px] font-bold uppercase text-white/40 ml-1">Category</label><input value={editCategory} onChange={(e) => setEditCategory(e.target.value)} list="category-suggestions" className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-[15px]" /><datalist id="category-suggestions">{allCategories.map(c => <option key={c} value={c} />)}</datalist></div>
                       <div className="space-y-1"><label className="text-[11px] font-bold uppercase text-white/40 ml-1">Count</label><input type="number" value={editCount} onChange={(e) => setEditCount(Number(e.target.value))} className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-[15px]" /></div>
                     </div>
-                    <div className="space-y-1"><label className="text-[11px] font-bold uppercase text-white/40 ml-1">Status</label><div className="flex gap-2 mb-2">{(["ready", "queue", "drill"] as const).map(s => <button key={s} onClick={() => setEditStatus(s)} className={"flex-1 py-3 rounded-xl border " + (editStatus === s ? "bg-white/20 border-white/40" : "bg-white/5 border-white/10")}><span className="text-[28px]">{s === "ready" ? "💎" : s === "queue" ? "😮" : "🔥"}</span></button>)}</div></div>
+                    <div className="space-y-1"><label className="text-[11px] font-bold uppercase text-white/40 ml-1">Status</label><div className="flex gap-2 mb-2">{(["queue", "drill", "ready"] as const).map(s => <button key={s} onClick={() => setEditStatus(s)} className={"flex-1 py-3 rounded-xl border " + (editStatus === s ? "bg-white/20 border-white/40" : "bg-white/5 border-white/10")}><span className="text-[28px]">{s === "ready" ? "💎" : s === "queue" ? "😮" : "🔥"}</span></button>)}</div></div>
                     <button onClick={saveEdits} disabled={statusBusy} className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#60A5FA] to-[#B36BFF] text-white font-black text-[16px]">{statusBusy ? "Saving..." : "Save Changes"}</button>
                   </div>
                 </div>
@@ -792,12 +820,26 @@ function CounterPageInner() {
     </AnimatePresence>
   </div>
 )}</motion.div></div></div>
-                      <div className="flex w-[74px] flex-col items-center gap-3">
-                        <button type="button" onClick={cycleStep} className="h-[68px] w-[68px] rounded-full p-[3px] bg-white/20"><div className="h-full w-full rounded-full border-[3px] border-white/90 bg-gradient-to-br from-[#FF4D6D] to-[#FF7A00] flex items-center justify-center relative"><span className="absolute top-[10px] left-[6px] text-[14px] font-black">+</span><span className="text-[34px] font-black">{incrementStep}</span></div></button>
-                        <button type="button" onClick={cycleTapMode} className="relative h-[42px] w-[42px] rounded-full border bg-white/10 flex items-center justify-center text-[16px]">{tapTtsIcon}{tapTtsBadge && <div className="absolute -right-1 -bottom-1 h-[16px] min-w-[16px] rounded-full bg-white/90 text-[10px] font-semibold text-black">{tapTtsBadge}</div>}</button>
+                      <div className="flex w-[74px] flex-col items-center gap-3 relative z-[200]">
+                        <button type="button" onClick={cycleStep} className="h-[68px] w-[68px] rounded-full p-[3px] bg-white/20 relative z-[201]"><div className="h-full w-full rounded-full border-[3px] border-white/90 bg-gradient-to-br from-[#FF4D6D] to-[#FF7A00] flex items-center justify-center relative"><span className="absolute top-[10px] left-[6px] text-[14px] font-black">+</span><span className="text-[34px] font-black">{incrementStep}</span></div></button>
+                        <div className="relative z-[201]">
+                          <button 
+                            type="button" 
+                            onClick={cycleTapMode} 
+                            className="h-[64px] w-[64px] rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-[28px] active:scale-90 active:bg-white/20 transition-all shadow-lg relative z-[202]"
+                            style={{ touchAction: 'manipulation' }}
+                          >
+                            {tapTtsIcon}
+                            {tapTtsBadge && (
+                              <div className="absolute -right-1 -bottom-1 h-[20px] min-w-[20px] rounded-full bg-white text-[11px] font-black text-black flex items-center justify-center shadow-sm border border-black/5 z-[203]">
+                                {tapTtsBadge}
+                              </div>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <div className="relative -mt-9 sm:-mt-10 flex items-center justify-center">
+                    <div className="relative -mt-14 sm:-mt-16 flex items-center justify-center">
                       <div className="relative w-full max-w-[300px]">
                         <motion.div className="relative w-full aspect-square rounded-full border-[6px] border-white/90 overflow-hidden shadow-[0_0_80px_rgba(96,165,250,0.5)]" onClick={handleCircleTap} style={{ background: "conic-gradient(from 0deg, #00F2FF, #006AFF, #7000FF, #FF00C8, #FF0032, #FF8A00, #00F2FF)" }} whileTap={{ scale: 0.94 }}>
                           <motion.div className="absolute inset-0" animate={{ rotate: [0, 360] }} transition={{ duration: 4, repeat: Infinity, ease: "linear" }} style={{ background: "conic-gradient(from 0deg, transparent, rgba(255,255,255,0.5), transparent)" }} />

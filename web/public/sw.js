@@ -1,6 +1,7 @@
-const CACHE_NAME = "sar-kyat-pro-v3";
+const CACHE_NAME = "sar-kyat-pro-v4";
 
 const PRECACHE_URLS = [
+  "/",
   "/home",
   "/category",
   "/vocab",
