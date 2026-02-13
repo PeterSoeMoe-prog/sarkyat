@@ -103,12 +103,73 @@ export async function generateThaiExplanation(
     `   จำ [จ ဗျည်း (ကျော-ကျန်) + -ำ သရ (အမ်)]\n` +
     `   ပာ [ပ ဗျည်း (ပော-ပား) + -ာ သရ (အာ)]\n` +
     `4) Types to use in Burmese: ဗျည်း, သရ, Tone, အသတ်ဗျည်း.\n` +
-    `5) Use Thai script for characters and Burmese names from the USER-DEFINED logic.\n` +
-    `6) Provide exactly ONE simple example sentence inside the <sentence> tag on TWO LINES. \n` +
+    `5) ThaiChar MUST be Thai script ONLY (e.g., ล, โ, ก). Do NOT replace ThaiChar with Burmese.\n` +
+    `6) BurmeseName inside parentheses MUST be Burmese ONLY. Do NOT include any Thai characters inside BurmeseName.\n` +
+    `   Example consonant names: จ -> ကျော-ကျန်, พ -> ဖော-ဖန်, ก -> ကော-ကိုင်.\n` +
+    `7) STRICT VISUAL ORDER RULE: You MUST follow Thai writing order, not pronunciation order.\n` +
+    `   Leading vowels (โ-, เ-, แ-, ไ-, ใ-) are WRITTEN BEFORE the initial consonant.\n` +
+    `   Always list components in VISUAL writing order.\n` +
+    `   Example for "โลก": Visual order = โ + ล + ก (Vowel, Initial, Final).\n` +
+    `   For vowel explanation, ALWAYS use "อ" as the placeholder consonant to show vowel position (e.g., โ- -> โอ-, -ั- -> อั).\n` +
+    `8) Provide exactly ONE simple and useful daily-life sentence inside the <sentence> tag on TWO LINES. \n` +
+    `   Keep it short, clear, and practical.\n` +
     `   Line 1: Thai Sentence\n` +
     `   Line 2: Burmese Translation (DO NOT USE PARENTHESES OR BRACES)\n` +
     `   STRICT RULE: DO NOT include "ဝါကျ -" prefix or any other labels inside the <sentence> tag.\n` +
-    `7) No extra sections, no extra commentary.\n`;
+    `9) No extra sections, no extra commentary.\n`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const text = result?.response?.text?.() ?? "";
+    const cleaned = String(text ?? "").trim();
+    if (!cleaned) throw new Error("Empty response");
+    return cleaned;
+  } catch (e: unknown) {
+    const err = e as { message?: string };
+    const msg = err?.message ? String(err.message) : "AI request failed";
+
+    if (msg.includes("[429") || msg.includes(" 429 ") || msg.includes("429")) {
+      const retryAfter = parseRetryAfterSeconds(msg);
+      if (retryAfter != null) {
+        throw new Error(`RATE_LIMIT: retry_after=${Math.ceil(retryAfter)}s`);
+      }
+      throw new Error("RATE_LIMIT: quota_exceeded");
+    }
+
+    if (msg.includes("[404") || msg.includes(" 404 ") || msg.includes("404")) {
+      const diag = await listModelsDiagnostic(key);
+      throw new Error(`${msg}\n\n${diag}`);
+    }
+    throw new Error(msg);
+  }
+}
+
+export async function generateThaiSoundMeanings(
+  apiKey: string,
+  thai: string,
+  burmese?: string | null
+): Promise<string> {
+  const key = (apiKey ?? "").trim();
+  if (!key) throw new Error("Missing API key");
+
+  const genAI = new GoogleGenerativeAI(key);
+  const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+
+  const prompt =
+    `You must respond in Burmese (Myanmar) language and follow the STRICT output format below.\n` +
+    `Output MUST be plain text with NO extra commentary.\n\n` +
+    `STRICT FORMAT:\n` +
+    `Provide one line per Thai sound/syllable in this exact form:\n` +
+    `ThaiSound - Burmese meaning (if no meaning, write "မရှိ")\n\n` +
+    `TARGET WORD:\n` +
+    `Thai word: ${(thai ?? "").trim()}\n` +
+    `Burmese meaning: ${(burmese ?? "").trim()}\n` +
+    `\n` +
+    `RULES:\n` +
+    `1) Split the word into its individual sounds/syllables.\n` +
+    `2) For each sound, provide the Burmese meaning if it exists as a standalone meaning.\n` +
+    `3) If a sound has no standalone meaning, write "မရှိ".\n` +
+    `4) No numbering, no bullets, no extra text.\n`;
 
   try {
     const result = await model.generateContent(prompt);

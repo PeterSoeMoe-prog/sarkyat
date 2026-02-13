@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { 
   collection, 
   doc, 
@@ -29,6 +29,7 @@ import {
   vocabCollectionPath,
   fetchUserContext,
   saveUserContext,
+  batchUpdateAiComposition,
   type UserStudyGoals, 
   type VocabLogic,
   type UserContext
@@ -37,6 +38,41 @@ import { saveVocabToIndexedDB, getVocabFromIndexedDB } from "@/lib/vocab/indexed
 import type { VocabularyEntry } from "@/lib/vocab/types";
 
 import { DEFAULT_STARTING_DATE } from "@/lib/constants";
+
+const MM_TO_TH_VOWELS: Record<string, string> = {
+  "ု": "ุ",
+  "ူ": "ู",
+  "ိ": "ิ",
+  "ီ": "ี",
+  "ေ": "เ",
+  "ဲ": "ไ",
+  "ာ": "า",
+  "ါ": "า",
+  "ံ": "ํ",
+};
+
+const normalizeAiCompositionText = (text: string) => {
+  const lines = text.split("\n");
+  const out = lines.map((line) => {
+    if (!/[\u0E00-\u0E7F]/.test(line)) return line;
+    if (!/[\u102B-\u1032\u1036]/.test(line)) return line;
+    let next = line;
+    for (const [mm, th] of Object.entries(MM_TO_TH_VOWELS)) {
+      if (next.includes(mm)) next = next.split(mm).join(th);
+    }
+    if (/[()\u0E00-\u0E7F]/.test(next)) {
+      next = next.replace(/\(([^)]*)\)/g, (_m, inner) => {
+        const cleaned = String(inner)
+          .replace(/[\u0E00-\u0E7F]/g, "")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        return `(${cleaned})`;
+      });
+    }
+    return next;
+  });
+  return out.join("\n");
+};
 
 export type SyncStatus = "offline" | "syncing" | "live";
 
@@ -78,6 +114,7 @@ export function useVocabulary() {
     }
     return [];
   });
+  const aiCompositionMigrationRef = useRef(false);
 
   useEffect(() => {
     if (typeof window !== "undefined" && items.length === 0) {
@@ -258,11 +295,49 @@ export function useVocabulary() {
     setLoading(true);
     setVocabError(null);
 
+    const maybeMigrateAiComposition = (nextItems: VocabularyEntry[], fromCache: boolean) => {
+      if (typeof window === "undefined") return;
+      if (fromCache) return;
+      if (aiCompositionMigrationRef.current) return;
+      const key = `ai_comp_mm_migrated_${uid}`;
+      if (localStorage.getItem(key)) return;
+      aiCompositionMigrationRef.current = true;
+
+      const updates: Array<{ id: string; ai_composition: string }> = [];
+      nextItems.forEach((item) => {
+        const comp = typeof item.ai_composition === "string" ? item.ai_composition : "";
+        if (!comp) return;
+        const hasThai = /[\u0E00-\u0E7F]/.test(comp);
+        const hasMyanmarVowels = /[\u102B-\u1032\u1036]/.test(comp);
+        const hasThaiInParens = /\([^)]*[\u0E00-\u0E7F][^)]*\)/.test(comp);
+        if (!hasThai || (!hasMyanmarVowels && !hasThaiInParens)) return;
+        const fixed = normalizeAiCompositionText(comp);
+        if (fixed !== comp) {
+          updates.push({ id: item.id, ai_composition: fixed });
+        }
+      });
+
+      if (updates.length === 0) {
+        localStorage.setItem(key, String(Date.now()));
+        return;
+      }
+
+      void batchUpdateAiComposition(uid, updates)
+        .then(() => {
+          localStorage.setItem(key, String(Date.now()));
+        })
+        .catch((err) => {
+          console.error("AI composition migration failed:", err);
+          aiCompositionMigrationRef.current = false;
+        });
+    };
+
     try {
       const unsub = listenVocabulary(
         uid,
         (next) => {
           console.log("Vocab data source:", next.fromCache ? "Cache" : "Server");
+          maybeMigrateAiComposition(next.items, next.fromCache);
           setItems(next.items);
           if (typeof window !== "undefined") {
             localStorage.setItem("cached_vocab_items", JSON.stringify(next.items));

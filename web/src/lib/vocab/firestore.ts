@@ -35,6 +35,7 @@ type VocabDoc = {
   ai_explanation?: string | null;
   ai_composition?: string | null;
   ai_sentence?: string | null;
+  ai_seprate?: string | null;
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -78,6 +79,7 @@ function normalizeDoc(data: VocabDoc): VocabularyEntry {
     ai_explanation: typeof data.ai_explanation === "string" ? data.ai_explanation : null,
     ai_composition: typeof data.ai_composition === "string" ? data.ai_composition : null,
     ai_sentence: typeof data.ai_sentence === "string" ? data.ai_sentence : null,
+    ai_seprate: typeof data.ai_seprate === "string" ? data.ai_seprate : null,
   };
 }
 
@@ -393,6 +395,7 @@ export async function upsertVocabulary(uid: string, entry: VocabularyEntry) {
     ai_explanation: entry.ai_explanation ?? null,
     ai_composition: entry.ai_composition ?? null,
     ai_sentence: entry.ai_sentence ?? null,
+    ai_seprate: entry.ai_seprate ?? null,
     updatedAt: serverTimestamp(),
   };
 
@@ -404,6 +407,36 @@ export async function updateAiExplanation(uid: string, vocabId: string, payload:
   const ref = doc(db, vocabCollectionPath(uid), vocabId);
   await updateDoc(ref, {
     ...payload,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function batchUpdateAiComposition(
+  uid: string,
+  updates: Array<{ id: string; ai_composition: string }>
+): Promise<void> {
+  if (!uid || updates.length === 0) return;
+  const db = getFirebaseDb();
+  const chunkSize = 400;
+  for (let i = 0; i < updates.length; i += chunkSize) {
+    const batch = writeBatch(db);
+    const chunk = updates.slice(i, i + chunkSize);
+    chunk.forEach((u) => {
+      const ref = doc(db, vocabCollectionPath(uid), u.id);
+      batch.update(ref, {
+        ai_composition: u.ai_composition,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  }
+}
+
+export async function updateAiSeprate(uid: string, vocabId: string, ai_seprate: string | null) {
+  const db = getFirebaseDb();
+  const ref = doc(db, vocabCollectionPath(uid), vocabId);
+  await updateDoc(ref, {
+    ai_seprate,
     updatedAt: serverTimestamp(),
   });
 }
